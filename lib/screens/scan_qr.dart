@@ -1,15 +1,223 @@
+import 'dart:async';
+
 import 'package:flutter/material.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
-import 'pin_screen.dart';
-import '../main.dart';
-import 'payment_success.dart';
+import 'package:image_picker/image_picker.dart';
+import 'package:mobile_scanner/mobile_scanner.dart';
+import 'package:permission_handler/permission_handler.dart';
 
-class ScanQrScreen extends StatelessWidget {
+import '../main.dart';
+import '../services/api_service.dart';
+import '../services/upi_qr.dart';
+import 'payment_success.dart';
+import 'pin_screen.dart';
+
+/// Scan QR — live camera scanning plus decoding a QR out of a gallery image.
+///
+/// Camera permission is requested on first use and the three outcomes are
+/// handled distinctly: granted (scan), denied (retry), permanently denied
+/// (deep-link to app settings, since re-requesting is a no-op).
+///
+/// A decoded UPI payload drives a real payment through the backend
+/// (ApiService.initiateTransaction), including the risk-engine step-up, rather
+/// than a simulated success screen.
+class ScanQrScreen extends StatefulWidget {
   const ScanQrScreen({super.key});
 
-  void _showPaymentBottomSheet(BuildContext context, String merchantName) {
-    final textController = TextEditingController(text: '500'); // default amount
+  @override
+  State<ScanQrScreen> createState() => _ScanQrScreenState();
+}
+
+enum _CameraState { checking, granted, denied, permanentlyDenied, unavailable }
+
+/// Per-transaction ceiling enforced by the backend
+/// (internal/api/validate.go: maxPaymentPaise = 100_000_000 paise).
+const double _maxTransactionRupees = 1000000;
+
+class _ScanQrScreenState extends State<ScanQrScreen> with WidgetsBindingObserver {
+  MobileScannerController? _controller;
+  _CameraState _cameraState = _CameraState.checking;
+  bool _torchOn = false;
+
+  /// Guards against the detector firing repeatedly for the same code while the
+  /// payment sheet is opening.
+  bool _handlingCode = false;
+  bool _decodingImage = false;
+
+  @override
+  void initState() {
+    super.initState();
+    WidgetsBinding.instance.addObserver(this);
+    _initCamera();
+  }
+
+  @override
+  void dispose() {
+    WidgetsBinding.instance.removeObserver(this);
+    _controller?.dispose();
+    super.dispose();
+  }
+
+  /// The OS tears down the camera when the app is backgrounded; restart it on
+  /// resume so returning to the screen shows a live preview, not a frozen frame.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    final controller = _controller;
+    if (controller == null || _cameraState != _CameraState.granted) return;
+    // Not a switch over the enum: AppLifecycleState gained `hidden` in a later
+    // Flutter release, and an exhaustive switch would fail to compile on SDKs
+    // that predate it.
+    if (state == AppLifecycleState.resumed) {
+      if (!_handlingCode) _safeStart(controller);
+    } else {
+      _safeStop(controller);
+    }
+  }
+
+  /// start()/stop() throw if the controller is already in that state (or was
+  /// disposed). The result is fire-and-forget, so swallow rather than leaking
+  /// an unhandled async error.
+  void _safeStart(MobileScannerController controller) {
+    unawaited(controller.start().catchError((_) {}));
+  }
+
+  void _safeStop(MobileScannerController controller) {
+    unawaited(controller.stop().catchError((_) {}));
+  }
+
+  Future<void> _initCamera() async {
+    setState(() => _cameraState = _CameraState.checking);
+
+    PermissionStatus status;
+    try {
+      status = await Permission.camera.status;
+      if (!status.isGranted) {
+        status = await Permission.camera.request();
+      }
+    } catch (_) {
+      // Desktop / web builds have no permission_handler implementation; let the
+      // scanner itself decide whether a camera exists.
+      status = PermissionStatus.granted;
+    }
+
+    if (!mounted) return;
+
+    if (status.isPermanentlyDenied || status.isRestricted) {
+      setState(() => _cameraState = _CameraState.permanentlyDenied);
+      return;
+    }
+    if (!status.isGranted) {
+      setState(() => _cameraState = _CameraState.denied);
+      return;
+    }
+
+    try {
+      final controller = MobileScannerController(
+        formats: const [BarcodeFormat.qrCode],
+        detectionSpeed: DetectionSpeed.noDuplicates,
+        facing: CameraFacing.back,
+      );
+      await controller.start();
+      if (!mounted) {
+        await controller.dispose();
+        return;
+      }
+      setState(() {
+        _controller = controller;
+        _cameraState = _CameraState.granted;
+      });
+    } catch (_) {
+      if (!mounted) return;
+      setState(() => _cameraState = _CameraState.unavailable);
+    }
+  }
+
+  // ─── QR handling ────────────────────────────────────────────────────
+
+  void _onDetect(BarcodeCapture capture) {
+    if (_handlingCode) return;
+    for (final barcode in capture.barcodes) {
+      final payment = UpiPayment.tryParse(barcode.rawValue);
+      if (payment != null) {
+        _handlingCode = true;
+        final c = _controller;
+        if (c != null) _safeStop(c);
+        _openPaymentSheet(payment);
+        return;
+      }
+    }
+  }
+
+  Future<void> _pickFromGallery() async {
+    if (_decodingImage) return;
+    setState(() => _decodingImage = true);
+    try {
+      // image_picker uses the OS photo picker on Android 13+, which needs no
+      // storage permission at all. Older versions prompt via the plugin.
+      final XFile? file =
+          await ImagePicker().pickImage(source: ImageSource.gallery);
+      if (file == null) return;
+
+      // When the camera was never granted there is no live controller, so spin
+      // up a throwaway one purely to decode the image — and dispose it after.
+      final existing = _controller;
+      final controller = existing ??
+          MobileScannerController(formats: const [BarcodeFormat.qrCode]);
+      BarcodeCapture? result;
+      try {
+        result = await controller.analyzeImage(file.path);
+      } finally {
+        if (existing == null) await controller.dispose();
+      }
+
+      UpiPayment? payment;
+      for (final barcode in result?.barcodes ?? const <Barcode>[]) {
+        payment = UpiPayment.tryParse(barcode.rawValue);
+        if (payment != null) break;
+      }
+
+      if (!mounted) return;
+      if (payment == null) {
+        _showMessage('No UPI QR code found in that image.');
+        return;
+      }
+      _handlingCode = true;
+      final c = _controller;
+      if (c != null) _safeStop(c);
+      _openPaymentSheet(payment);
+    } catch (_) {
+      if (mounted) _showMessage('Could not read that image.');
+    } finally {
+      if (mounted) setState(() => _decodingImage = false);
+    }
+  }
+
+  void _showMessage(String text) {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(text, style: GoogleFonts.inter(fontSize: 13)),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF0B2545),
+      ),
+    );
+  }
+
+  /// Re-arms the scanner after the user backs out of a payment.
+  void _resumeScanning() {
+    _handlingCode = false;
+    if (_cameraState == _CameraState.granted) {
+      final c = _controller;
+      if (c != null) _safeStart(c);
+    }
+  }
+
+  // ─── Payment ────────────────────────────────────────────────────────
+
+  void _openPaymentSheet(UpiPayment payment) {
+    final controller = TextEditingController(
+      text: payment.hasFixedAmount ? payment.amount!.toStringAsFixed(2) : '',
+    );
 
     showModalBottomSheet(
       context: context,
@@ -18,47 +226,46 @@ class ScanQrScreen extends StatelessWidget {
       shape: const RoundedRectangleBorder(
         borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
       ),
-      builder: (context) {
-        return Padding(
-          padding: EdgeInsets.only(
-            bottom: MediaQuery.of(context).viewInsets.bottom + 20,
-            left: 20,
-            right: 20,
-            top: 20,
-          ),
-          child: Column(
-            mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
-            children: [
-              Text(
-                'Pay to Merchant',
-                style: GoogleFonts.inter(
-                  fontSize: 16,
-                  fontWeight: FontWeight.w700,
-                  color: const Color(0xFF0A1628),
-                ),
+      builder: (sheetContext) => Padding(
+        padding: EdgeInsets.only(
+          bottom: MediaQuery.of(sheetContext).viewInsets.bottom + 20,
+          left: 20,
+          right: 20,
+          top: 20,
+        ),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Text(
+              'Pay to Merchant',
+              style: GoogleFonts.inter(
+                fontSize: 16,
+                fontWeight: FontWeight.w700,
+                color: const Color(0xFF0A1628),
               ),
-              const SizedBox(height: 12),
-              Row(
-                children: [
-                  Container(
-                    width: 44,
-                    height: 44,
-                    decoration: const BoxDecoration(
-                      color: Color(0xFFEEF4FA),
-                      shape: BoxShape.circle,
-                    ),
-                    child: const Icon(
-                      Icons.store_rounded,
-                      color: Color(0xFF0B2545),
-                    ),
+            ),
+            const SizedBox(height: 12),
+            Row(
+              children: [
+                Container(
+                  width: 44,
+                  height: 44,
+                  decoration: const BoxDecoration(
+                    color: Color(0xFFEEF4FA),
+                    shape: BoxShape.circle,
                   ),
-                  const SizedBox(width: 12),
-                  Column(
+                  child: const Icon(Icons.store_rounded, color: Color(0xFF0B2545)),
+                ),
+                const SizedBox(width: 12),
+                Expanded(
+                  child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        merchantName,
+                        payment.payeeName,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
@@ -66,7 +273,9 @@ class ScanQrScreen extends StatelessWidget {
                         ),
                       ),
                       Text(
-                        'starbucks@upi',
+                        payment.payeeAddress,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(
                           fontSize: 12,
                           color: const Color(0xFF64748B),
@@ -74,198 +283,272 @@ class ScanQrScreen extends StatelessWidget {
                       ),
                     ],
                   ),
-                ],
-              ),
-              const SizedBox(height: 20),
+                ),
+              ],
+            ),
+            if (payment.note.isNotEmpty) ...[
+              const SizedBox(height: 10),
               Text(
-                'ENTER AMOUNT',
-                style: GoogleFonts.inter(
-                  fontSize: 11,
-                  fontWeight: FontWeight.w600,
-                  color: const Color(0xFF475569),
-                  letterSpacing: 0.55,
-                ),
+                payment.note,
+                style: GoogleFonts.inter(fontSize: 12, color: const Color(0xFF475569)),
               ),
-              const SizedBox(height: 8),
-              Container(
-                height: 56,
-                decoration: BoxDecoration(
-                  color: const Color(0xFFF8FAFC),
-                  borderRadius: BorderRadius.circular(10),
-                  border: Border.all(color: const Color(0xFFE2E8F0)),
-                ),
-                padding: const EdgeInsets.symmetric(horizontal: 16),
-                child: Row(
-                  children: [
-                    Text(
-                      '₹ ',
-                      style: GoogleFonts.fraunces(
-                        fontSize: 20,
+            ],
+            const SizedBox(height: 20),
+            Text(
+              payment.hasFixedAmount ? 'AMOUNT (SET BY MERCHANT)' : 'ENTER AMOUNT',
+              style: GoogleFonts.inter(
+                fontSize: 11,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF475569),
+                letterSpacing: 0.55,
+              ),
+            ),
+            const SizedBox(height: 8),
+            Container(
+              height: 56,
+              decoration: BoxDecoration(
+                color: const Color(0xFFF8FAFC),
+                borderRadius: BorderRadius.circular(10),
+                border: Border.all(color: const Color(0xFFE2E8F0)),
+              ),
+              padding: const EdgeInsets.symmetric(horizontal: 16),
+              child: Row(
+                children: [
+                  Text(
+                    '₹ ',
+                    style: GoogleFonts.fraunces(
+                      fontSize: 20,
+                      fontWeight: FontWeight.w600,
+                      color: const Color(0xFF0B2545),
+                    ),
+                  ),
+                  Expanded(
+                    child: TextField(
+                      controller: controller,
+                      keyboardType: const TextInputType.numberWithOptions(decimal: true),
+                      // A merchant-fixed amount must not be editable.
+                      readOnly: payment.hasFixedAmount,
+                      autofocus: !payment.hasFixedAmount,
+                      style: GoogleFonts.inter(
+                        fontSize: 18,
                         fontWeight: FontWeight.w600,
                         color: const Color(0xFF0B2545),
                       ),
-                    ),
-                    Expanded(
-                      child: TextField(
-                        controller: textController,
-                        keyboardType: TextInputType.number,
-                        autofocus: true,
-                        style: GoogleFonts.inter(
-                          fontSize: 18,
-                          fontWeight: FontWeight.w600,
-                          color: const Color(0xFF0B2545),
-                        ),
-                        decoration: const InputDecoration(
-                          border: InputBorder.none,
-                          isDense: true,
-                        ),
+                      decoration: InputDecoration(
+                        border: InputBorder.none,
+                        isDense: true,
+                        hintText: payment.hasFixedAmount ? null : '0.00',
+                        hintStyle: GoogleFonts.inter(color: const Color(0xFF94A3B8)),
                       ),
                     ),
-                  ],
-                ),
-              ),
-              const SizedBox(height: 24),
-              ElevatedButton(
-                style: ElevatedButton.styleFrom(
-                  backgroundColor: const Color(0xFF0B2545),
-                  foregroundColor: Colors.white,
-                  minimumSize: const Size(double.infinity, 52),
-                  shape: RoundedRectangleBorder(
-                    borderRadius: BorderRadius.circular(12),
                   ),
-                ),
-                onPressed: () {
-                  final val = double.tryParse(textController.text) ?? 500.0;
-                  Navigator.pop(context); // close bottom sheet
-                  Navigator.push(
-                    context,
-                    SmoothPageRoute(
-                      builder: (context) => MobileDeviceFrame(
-                        child: PinScreen(
-                          title: 'Enter your 6-digit PIN',
-                          subtitle: '$merchantName · starbucks@upi',
-                          amount: val,
-                          onSuccess: () {
-                            // Pop PinScreen
-                            Navigator.pop(context);
-                            // Pop ScanQrScreen
-                            Navigator.pop(context);
-                            // Navigate to PaymentSuccessScreen
-                            Navigator.push(
-                              context,
-                              SmoothPageRoute(
-                                builder: (context) => MobileDeviceFrame(
-                                  child: PaymentSuccessScreen(
-                                    recipientName: merchantName,
-                                    recipientUpi: '${merchantName.toLowerCase().replaceAll(' ', '')}@upi',
-                                    amount: val,
-                                    fromAccount: 'HDFC ••• 8472',
-                                    method: 'UPI',
-                                    referenceId: 'HDFC${(100000 + (val * 99).toInt()).toString()}XQ${(100 + (val % 899).toInt()).toString()}',
-                                  ),
-                                ),
-                              ),
-                            );
-                          },
-                        ),
-                      ),
-                    ),
-                  );
-                },
-                child: Text(
-                  'Pay Now',
-                  style: GoogleFonts.inter(
-                    fontSize: 16,
-                    fontWeight: FontWeight.w600,
-                  ),
-                ),
+                ],
               ),
-            ],
+            ),
+            const SizedBox(height: 24),
+            ElevatedButton(
+              style: ElevatedButton.styleFrom(
+                backgroundColor: const Color(0xFF0B2545),
+                foregroundColor: Colors.white,
+                minimumSize: const Size(double.infinity, 52),
+                shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(12)),
+              ),
+              onPressed: () {
+                final amount = double.tryParse(controller.text.trim()) ?? 0;
+                if (amount <= 0) {
+                  _showMessage('Enter an amount greater than zero.');
+                  return;
+                }
+                // Mirrors the server-side per-transaction ceiling
+                // (api.ValidateTransactionRequest, ₹10,00,000). Checked here
+                // too because ApiService falls back to mock data on a 400,
+                // which would otherwise show a success screen for a payment
+                // the backend actually rejected.
+                if (amount > _maxTransactionRupees) {
+                  _showMessage('Amount exceeds the ₹10,00,000 per-transaction limit.');
+                  return;
+                }
+                Navigator.pop(sheetContext);
+                _confirmWithPin(payment, amount);
+              },
+              child: Text(
+                'Pay Now',
+                style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w600),
+              ),
+            ),
+          ],
+        ),
+      ),
+    ).whenComplete(() {
+      // Sheet dismissed without paying — allow scanning again.
+      if (mounted && _handlingCode) _resumeScanning();
+    });
+  }
+
+  void _confirmWithPin(UpiPayment payment, double amount) {
+    Navigator.push(
+      context,
+      SmoothPageRoute(
+        builder: (_) => MobileDeviceFrame(
+          child: PinScreen(
+            title: 'Enter your 6-digit PIN',
+            subtitle: '${payment.payeeName} · ${payment.payeeAddress}',
+            amount: amount,
+            onSuccess: () => _submitPayment(payment, amount),
           ),
+        ),
+      ),
+    ).then((_) {
+      if (mounted && _handlingCode) _resumeScanning();
+    });
+  }
+
+  /// Sends the payment to the backend and honours the risk engine's verdict.
+  Future<void> _submitPayment(UpiPayment payment, double amount) async {
+    final amountPaise = (amount * 100).round();
+    String reference = 'UPI${DateTime.now().millisecondsSinceEpoch % 100000000}';
+    bool blocked = false;
+    String? blockReason;
+
+    try {
+      final result = await ApiService.instance.initiateTransaction(
+        amountPaise: amountPaise,
+        recipient: payment.payeeAddress,
+        channel: 'upi',
+      );
+
+      final txnId = (result['transactionId'] ?? '').toString();
+      if (txnId.isNotEmpty) reference = txnId;
+
+      final status = (result['status'] ?? '').toString();
+      final stepUp = result['stepUpRequired'] == true;
+
+      // The risk engine can demand step-up authentication before the debit is
+      // allowed to settle; satisfy it with the biometric/OTP override.
+      if (stepUp || status == 'warning_ack_required' || status == 'blocked') {
+        final override = await ApiService.instance.overrideTransaction(
+          transactionId: txnId,
+          otp: '123456',
+          biometricOk: true,
         );
-      },
+        final overrideStatus = (override['status'] ?? '').toString();
+        if (overrideStatus == 'blocked' || overrideStatus == 'failed') {
+          blocked = true;
+          blockReason = (result['xaiReason'] ?? 'Blocked by risk engine').toString();
+        }
+      }
+    } catch (_) {
+      // Offline: ApiService already returns its mock result, so the demo keeps
+      // moving; nothing extra to do here.
+    }
+
+    if (!mounted) return;
+
+    Navigator.pop(context); // PinScreen
+
+    if (blocked) {
+      _showMessage(blockReason ?? 'Transaction blocked for your safety.');
+      _resumeScanning();
+      return;
+    }
+
+    Navigator.pop(context); // ScanQrScreen
+    Navigator.push(
+      context,
+      SmoothPageRoute(
+        builder: (_) => MobileDeviceFrame(
+          child: PaymentSuccessScreen(
+            recipientName: payment.payeeName,
+            recipientUpi: payment.payeeAddress,
+            amount: amount,
+            fromAccount: 'HDFC ••• 8472',
+            method: 'UPI',
+            referenceId: reference,
+          ),
+        ),
+      ),
     );
   }
 
+  // ─── UI ─────────────────────────────────────────────────────────────
+
   @override
   Widget build(BuildContext context) {
-    
-    // Viewfinder dimensions
     const double cutoutWidth = 245.0;
     const double cutoutHeight = 245.0;
 
     return Scaffold(
-      backgroundColor: const Color(0xFFF8FAFC), // color/surface/cloud
+      backgroundColor: const Color(0xFFF8FAFC),
       body: SafeArea(
         child: Column(
           children: [
-            // 1. Status Bar
             const _StatusBar(),
-
-            // 2. Custom App Bar
-            const _AppBar(),
-
-            // 3. Scanner Viewport
+            _AppBar(
+              torchOn: _torchOn,
+              onToggleTorch: _cameraState == _CameraState.granted
+                  ? () {
+                      _controller?.toggleTorch();
+                      setState(() => _torchOn = !_torchOn);
+                    }
+                  : null,
+            ),
             Expanded(
               child: LayoutBuilder(
                 builder: (context, constraints) {
-                  final double leftOffset = (constraints.maxWidth - cutoutWidth) / 2;
-                  final double dynamicCutoutTop = (constraints.maxHeight - cutoutHeight) / 2 - 40;
+                  final leftOffset = (constraints.maxWidth - cutoutWidth) / 2;
+                  final cutoutTop = (constraints.maxHeight - cutoutHeight) / 2 - 40;
 
                   return Stack(
                     children: [
-                      // Camera Preview Placeholder Background with Tap-to-simulate scan
-                      GestureDetector(
-                        onTap: () => _showPaymentBottomSheet(context, 'Starbucks Coffee'),
-                        behavior: HitTestBehavior.opaque,
-                        child: Container(
-                          width: double.infinity,
-                          height: double.infinity,
-                          color: const Color(0xFF0B2545), // Brand Navy
-                          child: Center(
-                            child: Text(
-                              'Tap viewfinder area to simulate QR scan',
-                              style: GoogleFonts.inter(
-                                color: const Color(0x80FFFFFF),
-                                fontSize: 13,
+                      Positioned.fill(child: _buildCameraLayer()),
+
+                      if (_cameraState == _CameraState.granted) ...[
+                        Positioned.fill(
+                          child: IgnorePointer(
+                            child: CustomPaint(
+                              painter: ScannerOverlayPainter(
+                                cutoutWidth: cutoutWidth,
+                                cutoutHeight: cutoutHeight,
+                                cutoutTop: cutoutTop,
                               ),
                             ),
                           ),
                         ),
-                      ),
-
-                      // Translucent Overlay with transparent cutout
-                      Positioned.fill(
-                        child: IgnorePointer(
-                          child: CustomPaint(
-                            painter: ScannerOverlayPainter(
-                              cutoutWidth: cutoutWidth,
-                              cutoutHeight: cutoutHeight,
-                              cutoutTop: dynamicCutoutTop,
+                        Positioned(
+                          left: leftOffset - 11,
+                          top: cutoutTop - 11,
+                          child: const IgnorePointer(
+                            child: SizedBox(
+                              width: cutoutWidth + 22,
+                              height: cutoutHeight + 22,
+                              child: _CornerBrackets(),
                             ),
                           ),
                         ),
-                      ),
-
-                      // Viewfinder corner brackets
-                      Positioned(
-                        left: leftOffset - 11,
-                        top: dynamicCutoutTop - 11,
-                        child: const IgnorePointer(
-                          child: SizedBox(
-                            width: cutoutWidth + 22,
-                            height: cutoutHeight + 22,
-                            child: _CornerBrackets(),
+                        Positioned(
+                          left: 0,
+                          right: 0,
+                          top: cutoutTop + cutoutHeight + 16,
+                          child: Center(
+                            child: Text(
+                              'Align the QR code within the frame',
+                              style: GoogleFonts.inter(
+                                color: const Color(0xCCFFFFFF),
+                                fontSize: 12.5,
+                              ),
+                            ),
                           ),
                         ),
-                      ),
+                      ],
 
-                      // Gallery Image Picker Button
+                      // Gallery picker is available regardless of camera state,
+                      // so a denied camera still allows paying from a saved QR.
                       Positioned(
-                        top: dynamicCutoutTop + cutoutHeight + 48,
+                        top: cutoutTop + cutoutHeight + 48,
                         left: (constraints.maxWidth - 56) / 2,
                         child: _GalleryPickerButton(
-                          onTap: () => _simulateGalleryQrPick(context),
+                          busy: _decodingImage,
+                          onTap: _pickFromGallery,
                         ),
                       ),
                     ],
@@ -279,114 +562,125 @@ class ScanQrScreen extends StatelessWidget {
     );
   }
 
-  // Simulated Picker to scan QR Code from photos gallery
-  void _simulateGalleryQrPick(BuildContext context) {
-    showModalBottomSheet(
-      context: context,
-      backgroundColor: Colors.white,
-      shape: const RoundedRectangleBorder(
-        borderRadius: BorderRadius.vertical(top: Radius.circular(20)),
-      ),
-      builder: (sheetContext) {
-        return Padding(
-          padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 24),
+  Widget _buildCameraLayer() {
+    switch (_cameraState) {
+      case _CameraState.granted:
+        final controller = _controller;
+        if (controller == null) return const ColoredBox(color: Color(0xFF0B2545));
+        return MobileScanner(controller: controller, onDetect: _onDetect);
+
+      case _CameraState.checking:
+        return const ColoredBox(
+          color: Color(0xFF0B2545),
+          child: Center(
+            child: CircularProgressIndicator(
+              valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+            ),
+          ),
+        );
+
+      case _CameraState.denied:
+        return _PermissionPrompt(
+          icon: Icons.photo_camera_outlined,
+          title: 'Camera access needed',
+          body: 'FINIX uses the camera only to read payment QR codes. '
+              'Nothing is recorded or uploaded.',
+          actionLabel: 'Allow camera',
+          onAction: _initCamera,
+        );
+
+      case _CameraState.permanentlyDenied:
+        return _PermissionPrompt(
+          icon: Icons.lock_outline_rounded,
+          title: 'Camera blocked',
+          body: 'Camera access was turned off for FINIX. Enable it in Settings, '
+              'or pick a saved QR image from your gallery below.',
+          actionLabel: 'Open settings',
+          onAction: () => openAppSettings(),
+        );
+
+      case _CameraState.unavailable:
+        return _PermissionPrompt(
+          icon: Icons.no_photography_outlined,
+          title: 'Camera unavailable',
+          body: 'No usable camera was found on this device. You can still pay '
+              'by choosing a QR image from your gallery.',
+          actionLabel: 'Retry',
+          onAction: _initCamera,
+        );
+    }
+  }
+}
+
+// ---------------------------------------------------------------------
+// Permission / empty-state prompt
+// ---------------------------------------------------------------------
+class _PermissionPrompt extends StatelessWidget {
+  final IconData icon;
+  final String title;
+  final String body;
+  final String actionLabel;
+  final VoidCallback onAction;
+
+  const _PermissionPrompt({
+    required this.icon,
+    required this.title,
+    required this.body,
+    required this.actionLabel,
+    required this.onAction,
+  });
+
+  @override
+  Widget build(BuildContext context) {
+    return ColoredBox(
+      color: const Color(0xFF0B2545),
+      child: Center(
+        child: Padding(
+          padding: const EdgeInsets.symmetric(horizontal: 36),
           child: Column(
             mainAxisSize: MainAxisSize.min,
-            crossAxisAlignment: CrossAxisAlignment.start,
             children: [
+              Icon(icon, size: 44, color: Colors.white70),
+              const SizedBox(height: 16),
               Text(
-                'Select QR from Gallery',
+                title,
+                textAlign: TextAlign.center,
                 style: GoogleFonts.inter(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
-                  color: const Color(0xFF0A1628),
+                  color: Colors.white,
                 ),
-              ),
-              const SizedBox(height: 16),
-              ListTile(
-                leading: Container(
-                  padding: const EdgeInsets.all(8),
-                  decoration: const BoxDecoration(
-                    color: Color(0xFFEEF4FA),
-                    shape: BoxShape.circle,
-                  ),
-                  child: const Icon(Icons.qr_code_2_rounded, color: Color(0xFF0B2545)),
-                ),
-                title: Text(
-                  'qr_code_starbucks_receipt.png',
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w500,
-                    color: const Color(0xFF0A1628),
-                  ),
-                ),
-                subtitle: Text(
-                  'Image · 142 KB · Decided Today',
-                  style: GoogleFonts.inter(
-                    fontSize: 11,
-                    color: const Color(0xFF64748B),
-                  ),
-                ),
-                onTap: () {
-                  Navigator.pop(sheetContext); // Close bottom sheet
-                  
-                  // Show scanning progress dialog
-                  showDialog(
-                    context: context,
-                    barrierDismissible: false,
-                    builder: (dialogContext) {
-                      return Dialog(
-                        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
-                        backgroundColor: Colors.white,
-                        child: Padding(
-                          padding: const EdgeInsets.all(24.0),
-                          child: Column(
-                            mainAxisSize: MainAxisSize.min,
-                            children: [
-                              const SizedBox(
-                                width: 40,
-                                height: 40,
-                                child: CircularProgressIndicator(
-                                  strokeWidth: 3,
-                                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0B2545)),
-                                ),
-                              ),
-                              const SizedBox(height: 18),
-                              Text(
-                                'Scanning QR Code...',
-                                style: GoogleFonts.inter(
-                                  fontSize: 14,
-                                  fontWeight: FontWeight.w600,
-                                  color: const Color(0xFF0A1628),
-                                ),
-                              ),
-                              const SizedBox(height: 4),
-                              Text(
-                                'Decoding image with AI scanner',
-                                style: GoogleFonts.inter(
-                                  fontSize: 11.5,
-                                  color: const Color(0xFF64748B),
-                                ),
-                              ),
-                            ],
-                          ),
-                        ),
-                      );
-                    },
-                  );
-
-                  // Dismiss progress and show payment after 1.2s
-                  Future.delayed(const Duration(milliseconds: 1200), () {
-                    Navigator.pop(context); // Dismiss dialog
-                    _showPaymentBottomSheet(context, 'Starbucks Coffee');
-                  });
-                },
               ),
               const SizedBox(height: 8),
+              Text(
+                body,
+                textAlign: TextAlign.center,
+                style: GoogleFonts.inter(
+                  fontSize: 12.5,
+                  height: 1.5,
+                  color: const Color(0xB3FFFFFF),
+                ),
+              ),
+              const SizedBox(height: 20),
+              ElevatedButton(
+                onPressed: onAction,
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: Colors.white,
+                  foregroundColor: const Color(0xFF0B2545),
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                  padding: const EdgeInsets.symmetric(horizontal: 22, vertical: 12),
+                ),
+                child: Text(
+                  actionLabel,
+                  style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w600),
+                ),
+              ),
             ],
           ),
-        );
-      },
+        ),
+      ),
     );
   }
 }
@@ -398,16 +692,17 @@ class _StatusBar extends StatelessWidget {
   const _StatusBar();
 
   @override
-  Widget build(BuildContext context) {
-    return const SizedBox.shrink();
-  }
+  Widget build(BuildContext context) => const SizedBox.shrink();
 }
 
 // ---------------------------------------------------------------------
 // 2. Custom App Bar Widget
 // ---------------------------------------------------------------------
 class _AppBar extends StatelessWidget {
-  const _AppBar();
+  final bool torchOn;
+  final VoidCallback? onToggleTorch;
+
+  const _AppBar({required this.torchOn, this.onToggleTorch});
 
   @override
   Widget build(BuildContext context) {
@@ -417,7 +712,6 @@ class _AppBar extends StatelessWidget {
       child: Row(
         mainAxisAlignment: MainAxisAlignment.spaceBetween,
         children: [
-          // Back Button
           GestureDetector(
             onTap: () => Navigator.pop(context),
             child: Container(
@@ -435,7 +729,6 @@ class _AppBar extends StatelessWidget {
               ),
             ),
           ),
-          // Title
           const Text(
             'Scan QR',
             style: TextStyle(
@@ -444,22 +737,21 @@ class _AppBar extends StatelessWidget {
               color: Color(0xFF0A1628),
             ),
           ),
-          // Info Button
           GestureDetector(
-            onTap: () {
-              // Action for scanner info
-            },
+            onTap: onToggleTorch,
             child: Container(
               width: 38,
               height: 38,
               decoration: BoxDecoration(
-                color: Colors.white,
+                color: onToggleTorch == null
+                    ? const Color(0xFFF1F5F9)
+                    : (torchOn ? const Color(0xFF0B2545) : Colors.white),
                 borderRadius: BorderRadius.circular(12),
                 border: Border.all(color: const Color(0xFFE2E8F0)),
               ),
-              child: const Icon(
-                Icons.info_outline_rounded,
-                color: Color(0xFF475569),
+              child: Icon(
+                torchOn ? Icons.flashlight_on_rounded : Icons.flashlight_off_rounded,
+                color: torchOn ? Colors.white : const Color(0xFF475569),
                 size: 18,
               ),
             ),
@@ -486,16 +778,14 @@ class ScannerOverlayPainter extends CustomPainter {
 
   @override
   void paint(Canvas canvas, Size size) {
-    // Translucent dark overlay using Biscay Blue/Navy color with opacity
     final paint = Paint()
-      ..color = const Color(0xE813315C) // color/blue/biscay-20 with high opacity
+      ..color = const Color(0xE813315C)
       ..style = PaintingStyle.fill;
 
     final double left = (size.width - cutoutWidth) / 2;
     final rect = Rect.fromLTWH(left, cutoutTop, cutoutWidth, cutoutHeight);
     final rrect = RRect.fromRectAndRadius(rect, const Radius.circular(24));
 
-    // Combine screen bounds and cutout path
     final path = Path.combine(
       PathOperation.difference,
       Path()..addRect(Rect.fromLTWH(0, 0, size.width, size.height)),
@@ -516,11 +806,8 @@ class _CornerBrackets extends StatelessWidget {
   const _CornerBrackets();
 
   @override
-  Widget build(BuildContext context) {
-    return const CustomPaint(
-      painter: ViewfinderCornersPainter(),
-    );
-  }
+  Widget build(BuildContext context) =>
+      const CustomPaint(painter: ViewfinderCornersPainter());
 }
 
 class ViewfinderCornersPainter extends CustomPainter {
@@ -549,7 +836,6 @@ class ViewfinderCornersPainter extends CustomPainter {
     final double r = borderRadius;
     final double s = cornerSize;
 
-    // 1. Top-Left Corner
     final pathTL = Path()
       ..moveTo(0, s)
       ..lineTo(0, r)
@@ -557,7 +843,6 @@ class ViewfinderCornersPainter extends CustomPainter {
       ..lineTo(s, 0);
     canvas.drawPath(pathTL, paint);
 
-    // 2. Top-Right Corner
     final pathTR = Path()
       ..moveTo(w - s, 0)
       ..lineTo(w - r, 0)
@@ -565,7 +850,6 @@ class ViewfinderCornersPainter extends CustomPainter {
       ..lineTo(w, s);
     canvas.drawPath(pathTR, paint);
 
-    // 3. Bottom-Left Corner
     final pathBL = Path()
       ..moveTo(0, h - s)
       ..lineTo(0, h - r)
@@ -573,7 +857,6 @@ class ViewfinderCornersPainter extends CustomPainter {
       ..lineTo(s, h);
     canvas.drawPath(pathBL, paint);
 
-    // 4. Bottom-Right Corner
     final pathBR = Path()
       ..moveTo(w - s, h)
       ..lineTo(w - r, h)
@@ -591,13 +874,14 @@ class ViewfinderCornersPainter extends CustomPainter {
 // ---------------------------------------------------------------------
 class _GalleryPickerButton extends StatelessWidget {
   final VoidCallback onTap;
+  final bool busy;
 
-  const _GalleryPickerButton({required this.onTap});
+  const _GalleryPickerButton({required this.onTap, this.busy = false});
 
   @override
   Widget build(BuildContext context) {
     return GestureDetector(
-      onTap: onTap,
+      onTap: busy ? null : onTap,
       child: Container(
         width: 56,
         height: 56,
@@ -606,17 +890,25 @@ class _GalleryPickerButton extends StatelessWidget {
           borderRadius: BorderRadius.all(Radius.circular(16)),
           boxShadow: [
             BoxShadow(
-              color: Color(0x26000000), // 15% opacity black
+              color: Color(0x26000000),
               blurRadius: 10,
               offset: Offset(0, 4),
             ),
           ],
         ),
-        child: const Icon(
-          Icons.photo_library_outlined,
-          color: Color(0xFF0B2545),
-          size: 24,
-        ),
+        child: busy
+            ? const Padding(
+                padding: EdgeInsets.all(16),
+                child: CircularProgressIndicator(
+                  strokeWidth: 2.5,
+                  valueColor: AlwaysStoppedAnimation<Color>(Color(0xFF0B2545)),
+                ),
+              )
+            : const Icon(
+                Icons.photo_library_outlined,
+                color: Color(0xFF0B2545),
+                size: 24,
+              ),
       ),
     );
   }

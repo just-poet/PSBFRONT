@@ -9,8 +9,26 @@ class ApiService {
   static final ApiService instance = ApiService._internal();
   ApiService._internal();
 
+  /// Default API host, resolved per platform.
+  ///
+  /// On the Android emulator `localhost` is the emulated device itself, not the
+  /// developer machine — the host is reachable at the special alias 10.0.2.2.
+  /// Using `localhost` there means every request fails and the app silently
+  /// falls back to mock data. Web/desktop keep localhost.
+  ///
+  /// For a physical phone, set the machine's LAN address at runtime via
+  /// [setBaseUrl] (e.g. http://192.168.1.42:8080) and add that host to
+  /// android/app/src/main/res/xml/network_security_config.xml.
+  static String get defaultBaseUrl {
+    if (kIsWeb) return 'http://localhost:8080';
+    if (defaultTargetPlatform == TargetPlatform.android) {
+      return 'http://10.0.2.2:8080';
+    }
+    return 'http://localhost:8080';
+  }
+
   // Configuration
-  String baseUrl = 'http://localhost:8080';
+  String baseUrl = defaultBaseUrl;
   String? sessionToken;
   String? userId;
   String? deviceIdFingerprint;
@@ -28,7 +46,7 @@ class ApiService {
       final prefs = await SharedPreferences.getInstance();
       sessionToken = prefs.getString(_keyToken);
       userId = prefs.getString(_keyUserId);
-      baseUrl = prefs.getString(_keyBaseUrl) ?? 'http://localhost:8080';
+      baseUrl = prefs.getString(_keyBaseUrl) ?? defaultBaseUrl;
     } catch (e) {
       // Graceful fallback if SharedPreferences is not supported (web preview)
     }

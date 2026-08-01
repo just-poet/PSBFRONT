@@ -14,6 +14,14 @@ dependencies:
   http: ^1.2.0
   shared_preferences: ^2.2.1
   crypto: ^3.0.3
+  # QR scanning: live camera preview + decoding a QR out of a gallery image
+  # (MobileScannerController.analyzeImage). Used by screens/scan_qr.dart.
+  mobile_scanner: ^5.2.3
+  # Gallery / camera image selection (QR from a photo, KYC document capture).
+  image_picker: ^1.1.2
+  # Runtime permission requests, plus openAppSettings() recovery when a
+  # permission has been permanently denied.
+  permission_handler: ^11.3.1
 
 dev_dependencies:
   flutter_test:
