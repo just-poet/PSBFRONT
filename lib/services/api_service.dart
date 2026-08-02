@@ -20,6 +20,14 @@ class ApiService {
   static final ApiService instance = ApiService._internal();
   ApiService._internal();
 
+  /// API address baked in at build time, for APKs handed to other people:
+  ///
+  ///   flutter build apk --dart-define=FINIX_BASE_URL=https://your-host
+  ///
+  /// An installed build then works on any network with no configuration. Empty
+  /// when not supplied, in which case the per-platform default below is used.
+  static const String compiledBaseUrl = String.fromEnvironment('FINIX_BASE_URL');
+
   /// Default API host, resolved per platform.
   ///
   /// On the Android emulator `localhost` is the emulated device itself, not the
@@ -27,10 +35,13 @@ class ApiService {
   /// Using `localhost` there means every request fails and the app silently
   /// falls back to mock data. Web/desktop keep localhost.
   ///
-  /// For a physical phone, set the machine's LAN address at runtime via
-  /// [setBaseUrl] (e.g. http://192.168.1.42:8080) and add that host to
-  /// android/app/src/main/res/xml/network_security_config.xml.
+  /// A build-time FINIX_BASE_URL always wins. Otherwise the address can be
+  /// changed at runtime from the sign-in screen (or via [setBaseUrl]); for a
+  /// plain-HTTP host on a phone, add it to
+  /// android/app/src/main/res/xml/network_security_config.xml — an https URL
+  /// (e.g. a tunnel) needs no such exemption.
   static String get defaultBaseUrl {
+    if (compiledBaseUrl.isNotEmpty) return compiledBaseUrl;
     if (kIsWeb) return 'http://localhost:8080';
     if (defaultTargetPlatform == TargetPlatform.android) {
       return 'http://10.0.2.2:8080';

@@ -1,0 +1,6 @@
+# Declares the tags used by the suite so `flutter test` does not warn.
+# `live` marks tests that require a running backend; they self-skip unless
+# --dart-define=FINIX_BASE_URL=<url> is supplied.
+tags:
+  live:
+    description: Requires a running FINIX backend

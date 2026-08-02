@@ -89,6 +89,76 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
     }
   }
 
+  /// Lets a tester point the app at a different backend (a tunnel URL, a LAN
+  /// address) without a rebuild. Essential when the APK is shared with people
+  /// on other networks.
+  Future<void> _editServerAddress() async {
+    final controller = TextEditingController(text: ApiService.instance.baseUrl);
+    final url = await showDialog<String>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        title: Text('API address',
+            style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700)),
+        content: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            TextField(
+              controller: controller,
+              autofocus: true,
+              keyboardType: TextInputType.url,
+              style: GoogleFonts.inter(fontSize: 14),
+              decoration: const InputDecoration(
+                hintText: 'https://example.trycloudflare.com',
+                border: OutlineInputBorder(),
+                isDense: true,
+              ),
+            ),
+            const SizedBox(height: 10),
+            Text(
+              'Use the https address of the FINIX backend. Plain http works '
+              'only for hosts allowed in the network security config.',
+              style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+            ),
+          ],
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext),
+            child: Text('Cancel', style: GoogleFonts.inter(fontSize: 13)),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            child: Text('Save',
+                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+          ),
+        ],
+      ),
+    );
+
+    if (url == null || url.isEmpty) return;
+    // Strip a trailing slash: every call appends an absolute path, so leaving
+    // it produces //v1/... which some proxies reject.
+    await ApiService.instance
+        .setBaseUrl(url.endsWith('/') ? url.substring(0, url.length - 1) : url);
+    if (!mounted) return;
+    final reachable = await ApiService.instance.checkConnection();
+    if (!mounted) return;
+    setState(() => _error = reachable ? null : 'Cannot reach $url');
+    if (reachable) _showConnected();
+  }
+
+  void _showConnected() {
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text('Connected to ${ApiService.instance.baseUrl}',
+            style: GoogleFonts.inter(fontSize: 13)),
+        behavior: SnackBarBehavior.floating,
+        backgroundColor: const Color(0xFF15803D),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -100,15 +170,43 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               const SizedBox(height: 24),
-              Container(
-                width: 52,
-                height: 52,
-                decoration: BoxDecoration(
-                  color: const Color(0xFF0B2545),
-                  borderRadius: BorderRadius.circular(14),
-                ),
-                child: const Icon(Icons.account_balance_rounded,
-                    color: Colors.white, size: 26),
+              Row(
+                mainAxisAlignment: MainAxisAlignment.spaceBetween,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  Container(
+                    width: 52,
+                    height: 52,
+                    decoration: BoxDecoration(
+                      color: const Color(0xFF0B2545),
+                      borderRadius: BorderRadius.circular(14),
+                    ),
+                    child: const Icon(Icons.account_balance_rounded,
+                        color: Colors.white, size: 26),
+                  ),
+                  // Connection state doubles as the entry point for changing
+                  // the API address, so a tester can always see and fix where
+                  // the app is pointing.
+                  ValueListenableBuilder<bool>(
+                    valueListenable: ApiService.instance.isConnected,
+                    builder: (context, connected, _) => TextButton.icon(
+                      onPressed: _busy ? null : _editServerAddress,
+                      icon: Icon(
+                        connected ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+                        size: 16,
+                        color: connected ? const Color(0xFF15803D) : const Color(0xFFB45309),
+                      ),
+                      label: Text(
+                        connected ? 'Connected' : 'Set server',
+                        style: GoogleFonts.inter(
+                          fontSize: 12,
+                          fontWeight: FontWeight.w600,
+                          color: connected ? const Color(0xFF15803D) : const Color(0xFFB45309),
+                        ),
+                      ),
+                    ),
+                  ),
+                ],
               ),
               const SizedBox(height: 22),
               Text(
