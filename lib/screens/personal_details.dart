@@ -4,6 +4,7 @@ import 'package:google_fonts/google_fonts.dart';
 import 'ekyc.dart';
 import 'audit_logs.dart';
 import '../main.dart';
+import '../services/api_service.dart';
 
 class PersonalDetailsScreen extends StatefulWidget {
   const PersonalDetailsScreen({super.key});
@@ -266,7 +267,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
             ),
             child: Center(
               child: Text(
-                'VA',
+                ApiService.instance.userInitials,
                 style: GoogleFonts.inter(
                   color: Colors.white,
                   fontSize: 17,
@@ -284,7 +285,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'Venkat A',
+                  ApiService.instance.userName.value ?? 'Signed out',
                   style: GoogleFonts.inter(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,

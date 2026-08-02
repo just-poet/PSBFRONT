@@ -62,6 +62,31 @@ class ApiService {
   static const String _keyToken = 'finix_session_token';
   static const String _keyUserId = 'finix_user_id';
   static const String _keyBaseUrl = 'finix_base_url';
+  static const String _keyUserName = 'finix_user_name';
+
+  /// Display name of the signed-in customer.
+  ///
+  /// The dashboard, profile and personal-details screens previously hardcoded
+  /// "Venkat A", so every account looked like the same person — with ten demo
+  /// logins that is immediately visible. Nothing called getProfile(), so the
+  /// app never knew who was signed in. The login response already carries the
+  /// name, so it is captured there and exposed here for widgets to observe.
+  final ValueNotifier<String?> userName = ValueNotifier<String?>(null);
+
+  /// Uppercase initials for the avatar, derived from [userName].
+  String get userInitials {
+    final parts = (userName.value ?? '')
+        .trim()
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '--';
+    if (parts.length == 1) {
+      final w = parts.first;
+      return (w.length >= 2 ? w.substring(0, 2) : w).toUpperCase();
+    }
+    return (parts.first[0] + parts.last[0]).toUpperCase();
+  }
 
   Future<void> init() async {
     try {
@@ -69,6 +94,7 @@ class ApiService {
       sessionToken = prefs.getString(_keyToken);
       userId = prefs.getString(_keyUserId);
       baseUrl = prefs.getString(_keyBaseUrl) ?? defaultBaseUrl;
+      userName.value = prefs.getString(_keyUserName);
     } catch (e) {
       // Graceful fallback if SharedPreferences is not supported (web preview)
     }
@@ -92,23 +118,31 @@ class ApiService {
     checkConnection();
   }
 
-  Future<void> saveSession(String token, String uid) async {
+  Future<void> saveSession(String token, String uid, {String? name}) async {
     sessionToken = token;
     userId = uid;
+    if (name != null && name.trim().isNotEmpty) {
+      userName.value = name.trim();
+    }
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.setString(_keyToken, token);
       await prefs.setString(_keyUserId, uid);
+      if (userName.value != null) {
+        await prefs.setString(_keyUserName, userName.value!);
+      }
     } catch (e) {}
   }
 
   Future<void> clearSession() async {
     sessionToken = null;
     userId = null;
+    userName.value = null;
     try {
       final prefs = await SharedPreferences.getInstance();
       await prefs.remove(_keyToken);
       await prefs.remove(_keyUserId);
+      await prefs.remove(_keyUserName);
     } catch (e) {}
   }
 
@@ -353,7 +387,7 @@ class ApiService {
       final token = data['accessToken'];
       final uid = data['userId'];
       if (token is String && uid is String) {
-        await saveSession(token, uid);
+        await saveSession(token, uid, name: data['name']?.toString());
       }
       return data;
     }

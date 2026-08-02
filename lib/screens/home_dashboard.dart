@@ -208,50 +208,53 @@ class _TopProfileBar extends StatelessWidget {
               },
               child: Row(
                 children: [
-                  // User Avatar
-                  Container(
-                    width: 38,
-                    height: 38,
-                    decoration: const BoxDecoration(
-                      shape: BoxShape.circle,
-                      color: Color(0xFFEEF4FA),
-                    ),
-                    child: ClipOval(
-                      child: Image.network(
-                        'http://localhost:3845/assets/d95318b4f8385b27f2a9af78c3b9c52d86c79074.png',
-                        fit: BoxFit.cover,
-                        errorBuilder: (context, error, stackTrace) {
-                          // Fallback profile circle with initials
-                          return Container(
-                            color: const Color(0xFF2E75B6),
-                            child: const Center(
+                  // Avatar and name follow the signed-in user. The avatar used
+                  // to load a Figma asset from http://localhost:3845, which
+                  // cannot resolve on a phone (and is blocked as cleartext), so
+                  // it always fell through to the error builder anyway.
+                  ValueListenableBuilder<String?>(
+                    valueListenable: ApiService.instance.userName,
+                    builder: (context, name, _) {
+                      final display = (name == null || name.trim().isEmpty)
+                          ? 'Signed out'
+                          : name.toUpperCase();
+                      return Expanded(
+                        child: Row(
+                          children: [
+                            Container(
+                              width: 38,
+                              height: 38,
+                              decoration: const BoxDecoration(
+                                shape: BoxShape.circle,
+                                color: Color(0xFF2E75B6),
+                              ),
+                              alignment: Alignment.center,
                               child: Text(
-                                'VA',
-                                style: TextStyle(
+                                ApiService.instance.userInitials,
+                                style: const TextStyle(
                                   color: Colors.white,
                                   fontWeight: FontWeight.bold,
                                   fontSize: 14,
                                 ),
                               ),
                             ),
-                          );
-                        },
-                      ),
-                    ),
-                  ),
-                  const SizedBox(width: 10),
-                  // User Name with Overflow Safety
-                  Expanded(
-                    child: Text(
-                      'VENKAT A',
-                      style: GoogleFonts.inter(
-                        fontSize: 15,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF0B2545),
-                        letterSpacing: 0.5,
-                      ),
-                      overflow: TextOverflow.ellipsis,
-                    ),
+                            const SizedBox(width: 10),
+                            Expanded(
+                              child: Text(
+                                display,
+                                style: GoogleFonts.inter(
+                                  fontSize: 15,
+                                  fontWeight: FontWeight.w600,
+                                  color: const Color(0xFF0B2545),
+                                  letterSpacing: 0.5,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        ),
+                      );
+                    },
                   ),
                 ],
               ),

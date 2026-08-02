@@ -128,4 +128,24 @@ void main() {
     health = await api.getSecurityHealth();
     expect(health['is_frozen'], isFalse);
   });
+
+  test('signed-in identity follows the account, so the UI cannot show a stale name', () async {
+    // The dashboard, profile and personal-details screens all render
+    // ApiService.userName / userInitials. Previously they hardcoded "Venkat A",
+    // so all ten demo logins looked like the same person. Signing in as two
+    // different customers must produce two different identities.
+    await api.loginWithCkyc('2000000001', '123456');
+    expect(api.userName.value, 'Jiyad');
+    expect(api.userInitials, 'JI');
+
+    await api.loginWithCkyc('2000000003', '123456');
+    expect(api.userName.value, 'RD Shubham');
+    expect(api.userInitials, 'RS');
+
+    // Signing out must clear it rather than leave the previous customer's name
+    // on screen.
+    await api.clearSession();
+    expect(api.userName.value, isNull);
+    expect(api.userInitials, '--');
+  });
 }

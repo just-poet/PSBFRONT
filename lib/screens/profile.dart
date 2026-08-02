@@ -8,6 +8,7 @@ import 'security.dart';
 import 'audit_logs.dart';
 import 'report_fraud.dart';
 import '../main.dart';
+import '../services/api_service.dart';
 
 class ProfileScreen extends StatefulWidget {
   const ProfileScreen({super.key});
@@ -337,7 +338,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
               ),
               child: Center(
                 child: Text(
-                  'VA',
+                  ApiService.instance.userInitials,
                   style: GoogleFonts.inter(
                     color: Colors.white,
                     fontSize: 19,
@@ -357,7 +358,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   Row(
                     children: [
                       Text(
-                        'Venkat A',
+                        ApiService.instance.userName.value ?? 'Signed out',
                         style: GoogleFonts.inter(
                           fontSize: 18,
                           fontWeight: FontWeight.w600,
