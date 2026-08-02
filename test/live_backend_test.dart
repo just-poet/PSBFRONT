@@ -148,4 +148,44 @@ void main() {
     expect(api.userName.value, isNull);
     expect(api.userInitials, '--');
   });
+
+  test('dashboard cards that used to be hardcoded now have real data behind them',
+      () async {
+    await api.loginWithCkyc('2000000001', '123456');
+
+    // Market snapshot: the card showed fixed index levels regardless of the API.
+    final market = await api.getMarketSnapshot();
+    expect(api.isConnected.value, isTrue);
+    expect(market['sensex'], isA<num>());
+    expect(market['nifty'], isA<num>());
+    expect(market['repoRate'], isA<num>());
+
+    // Insight card: was a fixed "Europe Trip" sentence.
+    final feed = await api.getInsightsFeed();
+    expect(feed, isNotEmpty);
+    expect(feed.first['title'].toString(), isNotEmpty);
+    expect(feed.first['body'].toString(), isNotEmpty);
+
+    // Allocation donut is computed from holdings, so categories must be present.
+    final investments = await api.getInvestments();
+    expect(investments, isNotEmpty);
+    expect(investments.first['category'], isA<String>());
+    expect(investments.first['currentValuePaise'], isA<int>());
+
+    // Goal card picks the active goal nearest completion.
+    final goals = await api.getGoals();
+    expect(goals.any((g) => (g['status'] ?? 'active') == 'active'), isTrue);
+    expect(goals.first['targetAmountPaise'], isA<int>());
+    expect(goals.first['savedAmountPaise'], isA<int>());
+
+    // Spend card sums debits, so transactions need type + timestamp.
+    final txns = await api.getTransactionHistory();
+    expect(txns, isNotEmpty);
+    expect(txns.first['type'], anyOf('debit', 'credit'));
+    expect(DateTime.tryParse(txns.first['timestamp'].toString()), isNotNull);
+
+    // Freeze banner reflects real state.
+    final security = await api.getSecurityHealth();
+    expect(security['is_frozen'], isA<bool>());
+  });
 }

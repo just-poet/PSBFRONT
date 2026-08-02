@@ -498,6 +498,54 @@ class ApiService {
     };
   }
 
+  /// Market snapshot shown on the dashboard: index levels, gold, repo rate and
+  /// the modelled impact on this customer's portfolio.
+  Future<Map<String, dynamic>> getMarketSnapshot() async {
+    try {
+      final response = await _client
+          .get(Uri.parse('$baseUrl/v1/dashboard/market-snapshot'), headers: _headers())
+          .timeout(connectionTimeout);
+      if (response.statusCode == 200) {
+        isConnected.value = true;
+        return jsonDecode(response.body) as Map<String, dynamic>;
+      }
+    } catch (_) {}
+
+    // Mock fallback keeps the card populated when offline.
+    isConnected.value = false;
+    return {
+      'sensex': 75180.42,
+      'nifty': 22831.11,
+      'goldPer10g': 74250,
+      'repoRate': 6.5,
+      'portfolioImpactPaise': 0,
+      'xai': 'Market data unavailable while offline.',
+    };
+  }
+
+  /// Personalised insight feed. The dashboard shows the highest-priority entry.
+  Future<List<Map<String, dynamic>>> getInsightsFeed() async {
+    try {
+      final response = await _client
+          .get(Uri.parse('$baseUrl/v1/insights/feed'), headers: _headers())
+          .timeout(connectionTimeout);
+      if (response.statusCode == 200) {
+        isConnected.value = true;
+        final list = jsonDecode(response.body) as List;
+        return list.cast<Map<String, dynamic>>();
+      }
+    } catch (_) {}
+
+    isConnected.value = false;
+    return [
+      {
+        'title': 'Insights unavailable',
+        'body': 'Connect to the FINIX server to see personalised insights.',
+        'reason': 'Offline',
+      }
+    ];
+  }
+
   // 3. Bank Accounts & Aggregator
   
   Future<List<Map<String, dynamic>>> getAccounts() async {

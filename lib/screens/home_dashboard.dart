@@ -30,6 +30,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   Map<String, dynamic> _healthScore = {'score300To900': 782, 'band': 'Excellent'};
   List<Map<String, dynamic>> _accounts = [];
   List<Map<String, dynamic>> _transactions = [];
+  // Backing data for the cards that used to be hardcoded.
+  List<Map<String, dynamic>> _investments = [];
+  List<Map<String, dynamic>> _goals = [];
+  Map<String, dynamic> _market = {};
+  Map<String, dynamic> _insight = {};
+  bool _accountFrozen = false;
 
   @override
   void initState() {
@@ -67,6 +73,11 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         ApiService.instance.getHealthScore(),
         ApiService.instance.getAccounts(),
         ApiService.instance.getTransactionHistory(),
+        ApiService.instance.getInvestments(),
+        ApiService.instance.getGoals(),
+        ApiService.instance.getMarketSnapshot(),
+        ApiService.instance.getInsightsFeed(),
+        ApiService.instance.getSecurityHealth(),
       ]);
 
       if (mounted) {
@@ -75,6 +86,13 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           _healthScore = results[1] as Map<String, dynamic>;
           _accounts = (results[2] as List).cast<Map<String, dynamic>>();
           _transactions = (results[3] as List).cast<Map<String, dynamic>>();
+          _investments = (results[4] as List).cast<Map<String, dynamic>>();
+          _goals = (results[5] as List).cast<Map<String, dynamic>>();
+          _market = results[6] as Map<String, dynamic>;
+          final feed = (results[7] as List).cast<Map<String, dynamic>>();
+          // The feed is priority-ordered; show the first entry.
+          _insight = feed.isNotEmpty ? feed.first : {};
+          _accountFrozen = (results[8] as Map)['is_frozen'] == true;
           _isLoading = false;
         });
       }
@@ -129,17 +147,21 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                       const SizedBox(height: 24),
                       
                       // 6. Overview Horizontal Scroll Section
-                      const _OverviewSection(),
+                      _OverviewSection(
+                        transactions: _transactions,
+                        investments: _investments,
+                        goals: _goals,
+                      ),
                       
                       const SizedBox(height: 20),
                       
                       // 7. AI Insight Card
-                      const _AiInsightCard(),
+                      _AiInsightCard(insight: _insight),
                       
                       const SizedBox(height: 24),
                       
                       // 8. Market Snapshot
-                      const _MarketSnapshot(),
+                      _MarketSnapshot(data: _market),
                       
                       const SizedBox(height: 24),
                       
@@ -149,7 +171,7 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                       const SizedBox(height: 16),
                       
                       // 10. Emergency Freeze Banner
-                      const _EmergencyFreezeBanner(),
+                      _EmergencyFreezeBanner(frozen: _accountFrozen),
                       
                       const SizedBox(height: 32),
                     ],
@@ -871,7 +893,137 @@ class _QuickActions extends StatelessWidget {
 // 6. Overview Section Widget (Horizontal Scrolling Cards)
 // ---------------------------------------------------------------------
 class _OverviewSection extends StatelessWidget {
-  const _OverviewSection();
+  final List<Map<String, dynamic>> transactions;
+  final List<Map<String, dynamic>> investments;
+  final List<Map<String, dynamic>> goals;
+
+  const _OverviewSection({
+    required this.transactions,
+    required this.investments,
+    required this.goals,
+  });
+
+  /// Debits in the current calendar month, in rupees.
+  double _spentThisMonth() => _spentIn(DateTime.now());
+
+  /// Debits in the same calendar month one month earlier, for the comparison.
+  double _spentLastMonth() {
+    final now = DateTime.now();
+    return _spentIn(DateTime(now.year, now.month - 1));
+  }
+
+  double _spentIn(DateTime month) {
+    var paise = 0;
+    for (final t in transactions) {
+      if (t['type'] != 'debit') continue;
+      // Only settled money counts; a blocked transfer never left the account.
+      final status = (t['status'] ?? '').toString();
+      if (status != 'success' && status.isNotEmpty) continue;
+      final ts = DateTime.tryParse((t['timestamp'] ?? '').toString());
+      if (ts == null) continue;
+      final local = ts.toLocal();
+      if (local.year == month.year && local.month == month.month) {
+        paise += (t['amountPaise'] as num?)?.toInt() ?? 0;
+      }
+    }
+    return paise / 100;
+  }
+
+  /// Percentage change vs last month; null when there is no baseline to
+  /// compare against (a brand-new account), so the UI can omit the claim
+  /// instead of printing a fabricated "0%".
+  double? _spendDeltaPercent() {
+    final prev = _spentLastMonth();
+    if (prev <= 0) return null;
+    return ((_spentThisMonth() - prev) / prev) * 100;
+  }
+
+  /// Portfolio split by instrument category, largest first, as
+  /// (label, share 0..1) pairs. Categories beyond the fourth are folded into
+  /// "Other" so the legend stays readable.
+  List<MapEntry<String, double>> _allocation() {
+    final totals = <String, double>{};
+    var grand = 0.0;
+    for (final inv in investments) {
+      final value = ((inv['currentValuePaise'] as num?)?.toDouble() ?? 0) / 100;
+      if (value <= 0) continue;
+      totals[_categoryLabel((inv['category'] ?? 'other').toString())] =
+          (totals[_categoryLabel((inv['category'] ?? 'other').toString())] ?? 0) + value;
+      grand += value;
+    }
+    if (grand <= 0) return const [];
+
+    final sorted = totals.entries.toList()..sort((a, b) => b.value.compareTo(a.value));
+    final top = sorted.take(4).toList();
+    final rest = sorted.skip(4).fold<double>(0, (sum, e) => sum + e.value);
+    final out = [for (final e in top) MapEntry(e.key, e.value / grand)];
+    if (rest > 0) out.add(MapEntry('Other', rest / grand));
+    return out;
+  }
+
+  static String _categoryLabel(String raw) {
+    switch (raw.toLowerCase()) {
+      case 'mutual_fund':
+        return 'MF';
+      case 'equity':
+      case 'stocks':
+        return 'Stocks';
+      case 'liquid':
+      case 'cash':
+        return 'Cash';
+      case 'fd':
+      case 'fixed_deposit':
+        return 'FD';
+      case 'ppf':
+        return 'PPF';
+      case 'gold':
+        return 'Gold';
+      case 'debt':
+        return 'Debt';
+      case 'elss':
+        return 'ELSS';
+      default:
+        return raw.isEmpty ? 'Other' : raw[0].toUpperCase() + raw.substring(1);
+    }
+  }
+
+  /// The active goal closest to completion — the most encouraging one to show.
+  Map<String, dynamic>? _featuredGoal() {
+    final active = goals.where((g) => (g['status'] ?? 'active') == 'active').toList();
+    if (active.isEmpty) return null;
+    active.sort((a, b) => _progress(b).compareTo(_progress(a)));
+    return active.first;
+  }
+
+  static double _progress(Map<String, dynamic> g) {
+    final target = (g['targetAmountPaise'] as num?)?.toDouble() ?? 0;
+    if (target <= 0) return 0;
+    final saved = (g['savedAmountPaise'] as num?)?.toDouble() ?? 0;
+    return (saved / target).clamp(0.0, 1.0);
+  }
+
+  /// Whole weeks until the goal's target date, or null when it has passed.
+  static int? _weeksTo(Map<String, dynamic> g) {
+    final d = DateTime.tryParse((g['targetDate'] ?? '').toString());
+    if (d == null) return null;
+    final days = d.difference(DateTime.now()).inDays;
+    return days <= 0 ? null : (days / 7).ceil();
+  }
+
+  /// Indian digit grouping: last three digits, then pairs (32,00,000).
+  static String _money(double rupees) {
+    final n = rupees.round().abs().toString();
+    if (n.length <= 3) return '₹$n';
+    final last3 = n.substring(n.length - 3);
+    var rest = n.substring(0, n.length - 3);
+    final groups = <String>[];
+    while (rest.length > 2) {
+      groups.insert(0, rest.substring(rest.length - 2));
+      rest = rest.substring(0, rest.length - 2);
+    }
+    if (rest.isNotEmpty) groups.insert(0, rest);
+    return '₹${groups.join(',')},$last3';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -909,7 +1061,7 @@ class _OverviewSection extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '₹32,400',
+                      _money(_spentThisMonth()),
                       style: GoogleFonts.spaceMono(
                         fontSize: 17,
                         fontWeight: FontWeight.w600,
@@ -917,23 +1069,45 @@ class _OverviewSection extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    Row(
-                      children: [
-                        const Icon(
-                          Icons.arrow_downward,
-                          color: Color(0xFFDC2626),
-                          size: 9,
-                        ),
-                        const SizedBox(width: 2),
-                        Text(
-                          '8% vs last month',
-                          style: GoogleFonts.inter(
-                            fontSize: 10,
-                            fontWeight: FontWeight.w600,
-                            color: const Color(0xFFDC2626),
-                          ),
-                        ),
-                      ],
+                    Builder(
+                      builder: (context) {
+                        final delta = _spendDeltaPercent();
+                        if (delta == null) {
+                          // No prior month to compare with — say so rather than
+                          // invent a trend.
+                          return Text(
+                            'No prior month',
+                            style: GoogleFonts.inter(
+                              fontSize: 10,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF64748B),
+                            ),
+                          );
+                        }
+                        // Spending more is the bad direction here, so the
+                        // colour follows the sign rather than being fixed red.
+                        final up = delta >= 0;
+                        final colour =
+                            up ? const Color(0xFFDC2626) : const Color(0xFF16A34A);
+                        return Row(
+                          children: [
+                            Icon(up ? Icons.arrow_upward : Icons.arrow_downward,
+                                color: colour, size: 9),
+                            const SizedBox(width: 2),
+                            Expanded(
+                              child: Text(
+                                '${delta.abs().toStringAsFixed(0)}% vs last month',
+                                style: GoogleFonts.inter(
+                                  fontSize: 10,
+                                  fontWeight: FontWeight.w600,
+                                  color: colour,
+                                ),
+                                overflow: TextOverflow.ellipsis,
+                              ),
+                            ),
+                          ],
+                        );
+                      },
                     ),
                     const Spacer(),
                     SizedBox(
@@ -965,28 +1139,44 @@ class _OverviewSection extends StatelessWidget {
                     Expanded(
                       child: Row(
                         children: [
-                          // Legend
+                          // Legend and donut both come from the customer's
+                          // actual holdings, so they always agree with the
+                          // portfolio screen.
                           Expanded(
                             child: Column(
                               mainAxisAlignment: MainAxisAlignment.center,
                               crossAxisAlignment: CrossAxisAlignment.start,
                               children: [
-                                _legendItem(const Color(0xFF0B2545), 'MF', '40%'),
-                                const SizedBox(height: 2.5),
-                                _legendItem(const Color(0xFF2E75B6), 'Stocks', '30%'),
-                                const SizedBox(height: 2.5),
-                                _legendItem(const Color(0xFF16A34A), 'Cash', '20%'),
-                                const SizedBox(height: 2.5),
-                                _legendItem(const Color(0xFFC8A951), 'FD', '10%'),
+                                for (var i = 0; i < _allocation().length; i++) ...[
+                                  if (i > 0) const SizedBox(height: 2.5),
+                                  _legendItem(
+                                    _sliceColours[i % _sliceColours.length],
+                                    _allocation()[i].key,
+                                    '${(_allocation()[i].value * 100).round()}%',
+                                  ),
+                                ],
+                                if (_allocation().isEmpty)
+                                  Text(
+                                    'No holdings',
+                                    style: GoogleFonts.inter(
+                                      fontSize: 10,
+                                      color: const Color(0xFF64748B),
+                                    ),
+                                  ),
                               ],
                             ),
                           ),
-                          // Pie donut Chart
                           SizedBox(
                             width: 55,
                             height: 55,
                             child: CustomPaint(
-                              painter: DonutChartPainter(),
+                              painter: DonutChartPainter(
+                                slices: [
+                                  for (var i = 0; i < _allocation().length; i++)
+                                    MapEntry(_sliceColours[i % _sliceColours.length],
+                                        _allocation()[i].value),
+                                ],
+                              ),
                             ),
                           ),
                         ],
@@ -1012,7 +1202,9 @@ class _OverviewSection extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      'Europe Trip',
+                      (_featuredGoal()?['name'] ?? 'No active goals').toString(),
+                      maxLines: 1,
+                      overflow: TextOverflow.ellipsis,
                       style: GoogleFonts.inter(
                         fontSize: 11.5,
                         fontWeight: FontWeight.w600,
@@ -1021,7 +1213,9 @@ class _OverviewSection extends StatelessWidget {
                     ),
                     const SizedBox(height: 6),
                     Text(
-                      '72%',
+                      _featuredGoal() == null
+                          ? '--'
+                          : '${(_progress(_featuredGoal()!) * 100).round()}%',
                       style: GoogleFonts.fraunces(
                         fontSize: 20,
                         fontWeight: FontWeight.w400,
@@ -1038,7 +1232,9 @@ class _OverviewSection extends StatelessWidget {
                       ),
                       child: FractionallySizedBox(
                         alignment: Alignment.centerLeft,
-                        widthFactor: 0.72,
+                        widthFactor: _featuredGoal() == null
+                            ? 0.0
+                            : _progress(_featuredGoal()!),
                         child: Container(
                           decoration: BoxDecoration(
                             gradient: const LinearGradient(
@@ -1054,7 +1250,12 @@ class _OverviewSection extends StatelessWidget {
                     ),
                     const Spacer(),
                     Text(
-                      '8 weeks to go',
+                      () {
+                        final g = _featuredGoal();
+                        if (g == null) return 'Create a goal to start';
+                        final w = _weeksTo(g);
+                        return w == null ? 'Target date passed' : '$w weeks to go';
+                      }(),
                       style: GoogleFonts.inter(
                         fontSize: 9.5,
                         fontWeight: FontWeight.w500,
@@ -1507,45 +1708,61 @@ class SparklinePainter extends CustomPainter {
 }
 
 // Donut Chart Painter for Asset Allocation card
+/// Slice colours, shared by the donut and its legend so the two always match.
+const List<Color> _sliceColours = [
+  Color(0xFF0B2545),
+  Color(0xFF2E75B6),
+  Color(0xFF16A34A),
+  Color(0xFFC8A951),
+  Color(0xFF7C3AED),
+];
+
 class DonutChartPainter extends CustomPainter {
+  /// (colour, share 0..1) pairs, in draw order. Supplied by the caller from the
+  /// customer's real holdings; the percentages used to be hardcoded here and so
+  /// could not agree with the portfolio.
+  final List<MapEntry<Color, double>> slices;
+
+  const DonutChartPainter({required this.slices});
+
   @override
   void paint(Canvas canvas, Size size) {
     final double radius = size.width / 2;
     final center = Offset(radius, radius);
     final rect = Rect.fromCircle(center: center, radius: radius - 3);
 
-    // Percentages: MF 40%, Stocks 30%, Cash 20%, FD 10%
-    final slices = [
-      _Slice(0.40, const Color(0xFF0B2545)),
-      _Slice(0.30, const Color(0xFF2E75B6)),
-      _Slice(0.20, const Color(0xFF16A34A)),
-      _Slice(0.10, const Color(0xFFC8A951)),
-    ];
+    if (slices.isEmpty) {
+      // Empty portfolio: draw a track rather than nothing, so the card keeps
+      // its shape.
+      canvas.drawArc(
+        rect, 0, 2 * math.pi, false,
+        Paint()
+          ..color = const Color(0xFFE2E8F0)
+          ..style = PaintingStyle.stroke
+          ..strokeWidth = 6.0,
+      );
+      return;
+    }
 
     double startAngle = -math.pi / 2; // start from top
-    
-    for (var slice in slices) {
-      final sweepAngle = slice.percentage * 2 * math.pi;
+    for (final slice in slices) {
+      final sweepAngle = slice.value * 2 * math.pi;
       final paint = Paint()
-        ..color = slice.color
+        ..color = slice.key
         ..style = PaintingStyle.stroke
         ..strokeWidth = 6.0
         ..strokeCap = StrokeCap.round;
 
-      // Draw a gap between slices using slightly reduced angle
-      canvas.drawArc(rect, startAngle + 0.05, sweepAngle - 0.1, false, paint);
+      // Trim each arc slightly so adjacent slices read as separate.
+      final gap = sweepAngle > 0.2 ? 0.05 : 0.0;
+      canvas.drawArc(rect, startAngle + gap, sweepAngle - gap * 2, false, paint);
       startAngle += sweepAngle;
     }
   }
 
   @override
-  bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
-}
-
-class _Slice {
-  final double percentage;
-  final Color color;
-  _Slice(this.percentage, this.color);
+  bool shouldRepaint(covariant DonutChartPainter oldDelegate) =>
+      oldDelegate.slices != slices;
 }
 
 // Credit Score Gauge Painter
@@ -1582,7 +1799,10 @@ class CreditScoreGaugePainter extends CustomPainter {
 // 7. AI Insight Widget (FINIX INSIGHT)
 // ---------------------------------------------------------------------
 class _AiInsightCard extends StatelessWidget {
-  const _AiInsightCard();
+  /// One entry from /v1/insights/feed (title, body, reason).
+  final Map<String, dynamic> insight;
+
+  const _AiInsightCard({required this.insight});
 
   @override
   Widget build(BuildContext context) {
@@ -1639,28 +1859,36 @@ class _AiInsightCard extends StatelessWidget {
                   ),
                 ),
                 const SizedBox(height: 6),
-                RichText(
-                  text: TextSpan(
-                    style: GoogleFonts.inter(
-                      fontSize: 13,
-                      color: const Color(0xFF0A1628),
-                      height: 1.4,
-                    ),
-                    children: [
-                      const TextSpan(text: 'Your '),
-                      TextSpan(
-                        text: 'Europe Trip',
-                        style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: const Color(0xFF0B2545)),
-                      ),
-                      const TextSpan(text: ' goal is 8 weeks ahead of schedule. Consider redirecting '),
-                      TextSpan(
-                        text: '₹2,000/month',
-                        style: GoogleFonts.inter(fontWeight: FontWeight.w600, color: const Color(0xFF0B2545)),
-                      ),
-                      const TextSpan(text: ' toward retirement to compound faster.'),
-                    ],
+                Text(
+                  (insight['title'] ?? 'FINIX Insight').toString(),
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                    color: const Color(0xFF0B2545),
+                    height: 1.4,
                   ),
                 ),
+                const SizedBox(height: 3),
+                Text(
+                  (insight['body'] ?? 'Connect to see personalised insights.')
+                      .toString(),
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    color: const Color(0xFF0A1628),
+                    height: 1.4,
+                  ),
+                ),
+                if ((insight['reason'] ?? '').toString().isNotEmpty) ...[
+                  const SizedBox(height: 4),
+                  Text(
+                    insight['reason'].toString(),
+                    style: GoogleFonts.inter(
+                      fontSize: 10.5,
+                      color: const Color(0xFF64748B),
+                      height: 1.3,
+                    ),
+                  ),
+                ],
                 const SizedBox(height: 8),
                 InkWell(
                   onTap: () {
@@ -1707,7 +1935,32 @@ class _AiInsightCard extends StatelessWidget {
 // 8. Market Snapshot Widget
 // ---------------------------------------------------------------------
 class _MarketSnapshot extends StatelessWidget {
-  const _MarketSnapshot();
+  /// Payload from /v1/dashboard/market-snapshot. The four figures below were
+  /// hardcoded, so the card showed stale index levels no matter what the
+  /// backend reported.
+  final Map<String, dynamic> data;
+
+  const _MarketSnapshot({required this.data});
+
+  static String _num(Object? v, {int decimals = 2}) {
+    final d = (v as num?)?.toDouble();
+    if (d == null) return '--';
+    final s = d.toStringAsFixed(decimals);
+    final parts = s.split('.');
+    final n = parts[0];
+    if (n.length <= 3) return s;
+    // Indian grouping for index levels (75,180.42).
+    final last3 = n.substring(n.length - 3);
+    var rest = n.substring(0, n.length - 3);
+    final groups = <String>[];
+    while (rest.length > 2) {
+      groups.insert(0, rest.substring(rest.length - 2));
+      rest = rest.substring(0, rest.length - 2);
+    }
+    if (rest.isNotEmpty) groups.insert(0, rest);
+    final whole = '${groups.join(',')},$last3';
+    return parts.length > 1 ? '$whole.${parts[1]}' : whole;
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -1815,10 +2068,21 @@ class _MarketSnapshot extends StatelessWidget {
               Row(
                 mainAxisAlignment: MainAxisAlignment.spaceBetween,
                 children: [
-                  _marketStat('Sensex', '72,840', '+0.42%', true),
-                  _marketStat('Nifty 50', '22,104', '+0.38%', true),
-                  _marketStat('Gold/10g', '62,180', '-0.21%', false),
-                  _marketStat('Repo', '6.50%', 'Hold', null),
+                  // The API reports levels, not day-change, so the second line
+                  // carries the portfolio impact it does provide rather than a
+                  // percentage that would have to be invented.
+                  _marketStat('Sensex', _num(data['sensex']), 'Index', null),
+                  _marketStat('Nifty 50', _num(data['nifty']), 'Index', null),
+                  _marketStat('Gold/10g', _num(data['goldPer10g'], decimals: 0),
+                      'Spot', null),
+                  _marketStat(
+                    'Repo',
+                    data['repoRate'] == null
+                        ? '--'
+                        : '${(data['repoRate'] as num).toStringAsFixed(2)}%',
+                    'Policy',
+                    null,
+                  ),
                 ],
               )
             ],
@@ -2124,7 +2388,12 @@ class _RecentActivity extends StatelessWidget {
 // 10. Emergency Freeze Widget (Dashed Border Banner)
 // ---------------------------------------------------------------------
 class _EmergencyFreezeBanner extends StatelessWidget {
-  const _EmergencyFreezeBanner();
+  /// Whether outgoing transfers are currently frozen, from
+  /// /v1/security/health. The banner used to be a fixed tip, so a frozen
+  /// account looked identical to a healthy one on the dashboard.
+  final bool frozen;
+
+  const _EmergencyFreezeBanner({required this.frozen});
 
   @override
   Widget build(BuildContext context) {
@@ -2165,14 +2434,18 @@ class _EmergencyFreezeBanner extends StatelessWidget {
                   ),
                   children: [
                     TextSpan(
-                      text: 'Emergency Freeze — ',
+                      text: frozen
+                          ? 'Account frozen — '
+                          : 'Emergency Freeze — ',
                       style: GoogleFonts.inter(
                         fontWeight: FontWeight.w600,
                         color: Colors.black,
                       ),
                     ),
                     TextSpan(
-                      text: 'Long-press the shield icon in Security to halt all outgoing transactions instantly.',
+                      text: frozen
+                          ? 'Outgoing transfers are blocked. Unfreeze from the Security screen.'
+                          : 'Long-press the shield icon in Security to halt all outgoing transactions instantly.',
                       style: GoogleFonts.inter(
                         fontWeight: FontWeight.w400,
                         color: const Color(0xFF475569),
