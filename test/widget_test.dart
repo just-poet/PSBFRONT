@@ -1,30 +1,49 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
 
 import 'package:finix_dashboard/main.dart';
 
+/// Replaces the `flutter create` counter scaffold, which tested a counter app
+/// that never existed in this project and had been failing since day one.
+/// These assert what actually matters: the app boots to the cKYC sign-in, and
+/// the form cannot be submitted half-filled.
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
+  testWidgets('app boots to the cKYC login screen', (WidgetTester tester) async {
     await tester.pumpWidget(const FinixApp());
-
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
-
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
     await tester.pump();
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+    expect(find.text('Sign in to FINIX'), findsOneWidget);
+    expect(find.text('CKYC NUMBER'), findsOneWidget);
+    expect(find.text('6-DIGIT PIN'), findsOneWidget);
+  });
+
+  testWidgets('sign-in stays disabled until both fields are complete',
+      (WidgetTester tester) async {
+    await tester.pumpWidget(const FinixApp());
+    await tester.pump();
+
+    ElevatedButton signInButton() => tester.widget<ElevatedButton>(
+          find.ancestor(
+            of: find.text('Sign in'),
+            matching: find.byType(ElevatedButton),
+          ),
+        );
+
+    expect(signInButton().onPressed, isNull, reason: 'empty form must not submit');
+
+    // A partial CKYC is still not enough.
+    await tester.enterText(find.byType(TextField).first, '20000000');
+    await tester.pump();
+    expect(signInButton().onPressed, isNull, reason: '8-digit CKYC is incomplete');
+
+    // Full CKYC but no PIN.
+    await tester.enterText(find.byType(TextField).first, '2000000001');
+    await tester.pump();
+    expect(signInButton().onPressed, isNull, reason: 'PIN still missing');
+
+    // Both complete -> enabled.
+    await tester.enterText(find.byType(TextField).last, '123456');
+    await tester.pump();
+    expect(signInButton().onPressed, isNotNull, reason: 'complete form must submit');
   });
 }

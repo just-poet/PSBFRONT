@@ -130,7 +130,7 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
               ),
               const SizedBox(height: 28),
 
-              _FieldLabel('CKYC NUMBER'),
+              const _FieldLabel('CKYC NUMBER'),
               const SizedBox(height: 8),
               _InputBox(
                 child: TextField(
@@ -165,7 +165,7 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
               ),
 
               const SizedBox(height: 18),
-              _FieldLabel('6-DIGIT PIN'),
+              const _FieldLabel('6-DIGIT PIN'),
               const SizedBox(height: 8),
               _InputBox(
                 child: Row(

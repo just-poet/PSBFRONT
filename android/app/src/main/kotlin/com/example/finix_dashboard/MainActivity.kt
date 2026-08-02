@@ -2,7 +2,7 @@ package com.example.finix_dashboard
 
 import android.os.Build
 import android.provider.Settings
-import io.flutter.embedding.android.FlutterActivity
+import io.flutter.embedding.android.FlutterFragmentActivity
 import io.flutter.embedding.engine.FlutterEngine
 import io.flutter.plugin.common.MethodChannel
 
@@ -24,7 +24,11 @@ import io.flutter.plugin.common.MethodChannel
  * [BiometricChannel], which issues real Keystore/StrongBox P-256 keys gated by
  * BiometricPrompt.
  */
-class MainActivity : FlutterActivity() {
+// FlutterFragmentActivity, not FlutterActivity: androidx BiometricPrompt needs a
+// FragmentActivity host, and io.flutter.embedding.android.FlutterActivity extends
+// plain android.app.Activity. Using the latter compiles only until the prompt is
+// constructed, then fails at runtime.
+class MainActivity : FlutterFragmentActivity() {
 
     private companion object {
         const val DEVICE_CHANNEL = "com.finix.hardware/device"

@@ -65,21 +65,21 @@ void main() {
 
   group('UpiPayment.tryParse — hostile amounts', () {
     test('ignores a negative or zero amount instead of trusting it', () {
-      expect(UpiPayment.tryParse('upi://pay?pa=a@b&am=-500')!.amount, isNull);
-      expect(UpiPayment.tryParse('upi://pay?pa=a@b&am=0')!.amount, isNull);
+      expect(UpiPayment.tryParse('upi://pay?pa=shop@ybl&am=-500')!.amount, isNull);
+      expect(UpiPayment.tryParse('upi://pay?pa=shop@ybl&am=0')!.amount, isNull);
     });
 
     test('ignores an absurd amount', () {
-      expect(UpiPayment.tryParse('upi://pay?pa=a@b&am=99999999')!.amount, isNull);
+      expect(UpiPayment.tryParse('upi://pay?pa=shop@ybl&am=99999999')!.amount, isNull);
     });
 
     test('ignores a non-numeric amount', () {
-      expect(UpiPayment.tryParse('upi://pay?pa=a@b&am=abc')!.amount, isNull);
+      expect(UpiPayment.tryParse('upi://pay?pa=shop@ybl&am=abc')!.amount, isNull);
     });
 
     test('rounds paise correctly (no floating point drift)', () {
-      expect(UpiPayment.tryParse('upi://pay?pa=a@b&am=0.07')!.amountPaise, 7);
-      expect(UpiPayment.tryParse('upi://pay?pa=a@b&am=1234.56')!.amountPaise, 123456);
+      expect(UpiPayment.tryParse('upi://pay?pa=shop@ybl&am=0.07')!.amountPaise, 7);
+      expect(UpiPayment.tryParse('upi://pay?pa=shop@ybl&am=1234.56')!.amountPaise, 123456);
     });
   });
 }
