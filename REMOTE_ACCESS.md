@@ -98,10 +98,14 @@ ngrok also passes API traffic straight through; its browser-warning interstitial
 does not affect the app.
 
 **ngrok hostnames are random unless you reserve one.** The free plan includes a
-single static domain: reserve it at https://dashboard.ngrok.com/domains and then
-start with `--url=<your-domain>` (or `-NgrokDomain <name>` via the launcher).
-Without it the hostname changes on every restart and an APK built with
-`--dart-define=FINIX_BASE_URL` stops reaching the backend.
+single static domain. This project has reserved:
+
+    https://parrot-novel-loudly.ngrok-free.app
+
+It is the launcher's default, so `start-finix.bat tunnel` reclaims the same
+hostname every run and the shipped APK — which has that URL compiled in — keeps
+working across restarts. Without a reserved domain the hostname changes on every
+start and the APK stops reaching the backend.
 
 **Latency matters.** A first request through a tunnel measured ~9 seconds
 (TLS + cold relay). `ApiService.connectionTimeout` is therefore 15s — the
