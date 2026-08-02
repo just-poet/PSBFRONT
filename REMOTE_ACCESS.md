@@ -76,6 +76,18 @@ an https URL:
 
 Point the app at whatever hostname it prints.
 
+**Pin the hostname if you are shipping an APK.** A random tunnel name changes on
+every restart, which bricks a build that has the URL compiled in. localtunnel
+takes a fixed subdomain:
+
+```bash
+npx localtunnel --port 8080 --subdomain finix-psb-demo   # https://finix-psb-demo.loca.lt
+```
+
+Restarting with the same `--subdomain` restores the same URL, so an installed
+APK keeps working. (The name is first-come, first-served across all localtunnel
+users — if it is taken you get a random one instead, so check the printed URL.)
+
 On this machine only **localtunnel** produced a working URL: Cloudflare needs
 the blocked 7844, localhost.run accepted the SSH connection but never issued a
 hostname, and serveo.net connected silently without responding.
