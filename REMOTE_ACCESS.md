@@ -69,7 +69,7 @@ an https URL:
 
 | Tool | Command | Port | Notes |
 |---|---|---|---|
-| ngrok | `ngrok http 8080` | 443 | |
+| **ngrok** | `ngrok http 8080` | 443 | **fastest here: ~0.3s/request** |
 | localhost.run | `ssh -R 80:127.0.0.1:8080 nokey@localhost.run` | 22 | connected but issued no URL |
 | localtunnel | `npx localtunnel --port 8080` | 443 | **verified working here** |
 | VS Code dev tunnels | `devtunnel host -p 8080 --allow-anonymous` | 443 | |
@@ -88,9 +88,20 @@ Restarting with the same `--subdomain` restores the same URL, so an installed
 APK keeps working. (The name is first-come, first-served across all localtunnel
 users — if it is taken you get a random one instead, so check the printed URL.)
 
-On this machine only **localtunnel** produced a working URL: Cloudflare needs
-the blocked 7844, localhost.run accepted the SSH connection but never issued a
-hostname, and serveo.net connected silently without responding.
+Measured on this machine: **ngrok ~0.34s per request, localtunnel 9-12s** — a
+~30x difference that is the difference between a demo that feels like an app and
+one that feels broken. Cloudflare cannot connect at all (port 7844 blocked),
+localhost.run accepted the SSH connection but never issued a hostname, and
+serveo.net connected silently without responding.
+
+ngrok also passes API traffic straight through; its browser-warning interstitial
+does not affect the app.
+
+**ngrok hostnames are random unless you reserve one.** The free plan includes a
+single static domain: reserve it at https://dashboard.ngrok.com/domains and then
+start with `--url=<your-domain>` (or `-NgrokDomain <name>` via the launcher).
+Without it the hostname changes on every restart and an APK built with
+`--dart-define=FINIX_BASE_URL` stops reaching the backend.
 
 **Latency matters.** A first request through a tunnel measured ~9 seconds
 (TLS + cold relay). `ApiService.connectionTimeout` is therefore 15s — the
