@@ -67,14 +67,23 @@ Test-NetConnection 198.41.192.77 -Port 7844 -InformationLevel Quiet
 Useful when 7844 is blocked. All of these terminate TLS for you, so the app gets
 an https URL:
 
-| Tool | Command | Port |
-|---|---|---|
-| ngrok | `ngrok http 8080` | 443 |
-| localhost.run | `ssh -R 80:127.0.0.1:8080 nokey@localhost.run` | 22 |
-| localtunnel | `npx localtunnel --port 8080` | 443 |
-| VS Code dev tunnels | `devtunnel host -p 8080 --allow-anonymous` | 443 |
+| Tool | Command | Port | Notes |
+|---|---|---|---|
+| ngrok | `ngrok http 8080` | 443 | |
+| localhost.run | `ssh -R 80:127.0.0.1:8080 nokey@localhost.run` | 22 | connected but issued no URL |
+| localtunnel | `npx localtunnel --port 8080` | 443 | **verified working here** |
+| VS Code dev tunnels | `devtunnel host -p 8080 --allow-anonymous` | 443 | |
 
 Point the app at whatever hostname it prints.
+
+On this machine only **localtunnel** produced a working URL: Cloudflare needs
+the blocked 7844, localhost.run accepted the SSH connection but never issued a
+hostname, and serveo.net connected silently without responding.
+
+**Latency matters.** A first request through a tunnel measured ~9 seconds
+(TLS + cold relay). `ApiService.connectionTimeout` is therefore 15s — the
+original 2s health-check timeout marked a perfectly healthy remote backend as
+offline, which silently switched every screen to mock data.
 
 ### Option C — deploy it (best for a demo people keep using)
 

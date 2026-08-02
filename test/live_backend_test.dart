@@ -73,9 +73,13 @@ void main() {
     final netWorth = await api.getNetWorth();
     expect(api.isConnected.value, isTrue, reason: 'isConnected false => mock fallback was used');
     expect(netWorth['netWorth'], isA<int>());
-    // The seeded demo identity is +Rs.85,00,000; the mock fallback is a
-    // different number, so this also proves the data came from the server.
-    expect(netWorth['netWorth'], 850000000);
+    // The seeded identity starts at +Rs.85,00,000 and drifts down as the demo
+    // spends, so assert a band rather than the exact figure — an exact match
+    // fails the moment anyone makes a payment. The mock fallback returns
+    // 248765000, which is far outside this band, so this still proves the data
+    // came from the server.
+    expect(netWorth['netWorth'], greaterThan(840000000));
+    expect(netWorth['netWorth'], lessThanOrEqualTo(850000000));
 
     final accounts = await api.getAccounts();
     expect(accounts, isNotEmpty);

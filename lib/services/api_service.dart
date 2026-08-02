@@ -112,12 +112,21 @@ class ApiService {
     } catch (e) {}
   }
 
+  /// How long the health check waits before declaring the backend unreachable.
+  ///
+  /// This was 2 seconds, which is fine on a LAN but far too short once the API
+  /// is reached over a tunnel or mobile data — a first request through a tunnel
+  /// measured ~9s here (TLS plus cold relay). The app would report "offline"
+  /// and every screen would silently render mock data against a backend that
+  /// was working perfectly.
+  static const Duration connectionTimeout = Duration(seconds: 15);
+
   Future<bool> checkConnection() async {
     try {
-      final response = await _client.get(
-        Uri.parse('$baseUrl/healthz'),
-      ).timeout(const Duration(seconds: 2));
-      
+      final response = await _client
+          .get(Uri.parse('$baseUrl/healthz'))
+          .timeout(connectionTimeout);
+
       final connected = response.statusCode == 200;
       isConnected.value = connected;
       return connected;
@@ -329,7 +338,7 @@ class ApiService {
             headers: _headers(requireAuth: false, isMutation: true),
             body: jsonEncode(body),
           )
-          .timeout(const Duration(seconds: 10));
+          .timeout(connectionTimeout);
     } catch (_) {
       isConnected.value = false;
       throw ApiException(
