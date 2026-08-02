@@ -55,18 +55,33 @@ badge before demoing.
 
 ## 4. Demo script
 
-### 4.1 Onboarding (real, creates a live user)
-eKYC screen → register → eKYC verify → biometric → PIN → login.
+### 4.1 Sign in or onboard
+The app opens on the **cKYC login screen**. For a new identity, tap
+"Complete eKYC": register → eKYC verify → biometric → PIN → login.
 Backed by `/v1/auth/register`, `/v1/auth/ekyc/verify`,
 `/v1/auth/biometric/register`, `/v1/auth/login/pin/set`, `/v1/auth/login/pin`.
 The returned JWT is stored and used for every later call.
 
-Or sign in as a seeded user with a full portfolio:
+Or sign in on the **cKYC login screen** (the app's entry point) as one of the
+10 seeded users. Sign-in uses the **10-digit Central KYC number + 6-digit PIN**
+— no phone number anywhere:
 
-| Field | Value |
-|---|---|
-| Mobile | `+919983692606` (include `+91`) |
-| PIN | `123456` |
+| cKYC | Name | Net worth |
+|---|---|---|
+| `2000000001` | Jiyad | +₹85,00,000 |
+| `2000000002` | Venkat | +₹45,00,000 |
+| `2000000003` | RD Shubham | +₹1,20,00,000 |
+| `2000000004` | Arjun Reddy | +₹15,00,000 |
+| `2000000005` | Priya Sharma | +₹55,00,000 |
+| `2000000006` | Karthik Iyer | +₹28,00,000 |
+| `2000000007` | Sneha Patel | +₹72,00,000 |
+| `2000000008` | Ravi Kumar | +₹8,00,000 |
+| `2000000009` | Ananya Gupta | +₹95,00,000 |
+| `2000000010` | Mohammed Ali | +₹38,00,000 |
+
+PIN for all ten is `123456`. The backend also prints this table at startup, and
+the login screen has a **Fill** button for the first account. Accounts created
+through eKYC get their own cKYC allocated from `3000000001` upward.
 
 ### 4.2 Dashboard — live data
 Net worth, health score, accounts and transactions all come from the API.
@@ -118,7 +133,7 @@ insurance, loans), Tax centre (dashboard + old-vs-new regime), Chatbot
 | Camera | `CAMERA` (runtime) | Scan QR live scanning | **added** |
 | Gallery image | `READ_MEDIA_IMAGES` (API 33+), `READ_EXTERNAL_STORAGE` (≤32) | Scan QR from a saved image | **added** — Android 13+ photo picker needs no grant |
 | Device fingerprint | none (ANDROID_ID) | session/device binding | **implemented natively** — previously a hardcoded constant shared by every install |
-| Biometric | `USE_BIOMETRIC`, `USE_FINGERPRINT` | step-up auth | declared; the native signer is **still simulated** (see below) |
+| Biometric | `USE_BIOMETRIC`, `USE_FINGERPRINT` | step-up auth / key signing | **implemented natively** — Keystore/StrongBox P-256 key gated by BiometricPrompt |
 | Contacts | none | Pay Anyone uses an in-app list, not device contacts | n/a |
 | Location / SMS | none | not read by the app | n/a |
 
@@ -126,9 +141,13 @@ insurance, loans), Tax centre (dashboard + old-vs-new regime), Chatbot
 
 Everything else in the payment path is real; these are not:
 
-- **Biometric key attestation.** `com.finix.hardware/biometric` has no native
-  implementation, so `FinixBiometric` returns a mock key/signature and
-  `authenticate()` always succeeds. The device *fingerprint* channel is real.
+- **Biometric on a bare emulator.** The native channel is now real: keys are
+  generated in the Android Keystore (StrongBox when present), require a
+  biometric to use, and are invalidated if biometrics are re-enrolled. If the
+  device/emulator has **no biometric enrolled**, registration returns
+  `NO_BIOMETRIC` and the Dart layer falls back to a simulated key —
+  `BiometricKeyPair.hardwareBacked` reports which happened. Enroll a
+  fingerprint in the emulator (Settings → Security) to exercise the real path.
 - **Step-up OTP** is hardcoded `123456` in the client override call.
 - **Add proof / document upload** screens are still UI-only.
 - **finix-RAG** is not required: the chatbot is answered in-process unless
@@ -140,7 +159,8 @@ Everything else in the payment path is real; these are not:
 |---|---|---|
 | Everything shows demo numbers, badge offline | app can't reach API | emulator must use `10.0.2.2`, not `localhost`; check the backend is up |
 | `CLEARTEXT_NOT_PERMITTED` in logcat | HTTP blocked | host must be listed in `network_security_config.xml` |
-| Login 401 `invalid mobile number or PIN` | mobile needs the `+91` prefix | use `+919983692606` |
+| Login 401 `invalid credentials` | wrong cKYC or PIN | use a number from the table, PIN `123456` |
+| Login 401 `ckyc number must be exactly 10 digits` | short/long input | cKYC is exactly 10 digits |
 | All payments 423 | cooling-off from an earlier blocked txn | wait it out, or set `FINIX_COOLOFF_BASE_MINUTES=1` and restart |
 | Payments 400 over ₹10,00,000 | per-transaction ceiling | expected; the app blocks it client-side too |
 | Camera screen stuck black | permission granted mid-session | leave and re-enter the screen (it restarts on resume) |

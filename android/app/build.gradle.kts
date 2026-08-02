@@ -34,6 +34,13 @@ android {
     }
 }
 
+dependencies {
+    // BiometricPrompt + BiometricManager, used by BiometricChannel to gate the
+    // hardware-backed signing key. androidx.biometric requires the host to be a
+    // FragmentActivity, which FlutterActivity already is.
+    implementation("androidx.biometric:biometric:1.1.0")
+}
+
 kotlin {
     compilerOptions {
         jvmTarget = org.jetbrains.kotlin.gradle.dsl.JvmTarget.JVM_17

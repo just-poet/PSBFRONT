@@ -1,4 +1,5 @@
 import 'dart:convert';
+import 'package:flutter/foundation.dart';
 import 'package:flutter/services.dart';
 import 'package:crypto/crypto.dart';
 
@@ -58,7 +59,13 @@ class FinixBiometric {
     }
   }
 
-  /// Generate a P-256 key pair in Secure Enclave / StrongBox (with mock fallback)
+  /// Generates a P-256 key pair inside the Android Keystore (StrongBox when the
+  /// device has it), gated by BiometricPrompt — see BiometricChannel.kt.
+  ///
+  /// Falls back to a simulated key only where no native implementation can run
+  /// (web/desktop) or where the device has no biometric enrolled, e.g. a bare
+  /// emulator. [BiometricKeyPair.hardwareBacked] says which happened, so the UI
+  /// and the logs never imply hardware attestation that did not occur.
   static Future<BiometricKeyPair> registerKeyPair() async {
     try {
       final Map<dynamic, dynamic>? result =
@@ -67,15 +74,24 @@ class FinixBiometric {
         return BiometricKeyPair(
           publicKey: result['publicKey'] as String,
           keyId: result['keyId'] as String,
+          hardwareBacked: true,
         );
       }
-    } catch (e) {
-      // Mock fallback key registration
+    } on PlatformException catch (e) {
+      // Native side reached but refused (typically NO_BIOMETRIC on an emulator
+      // with nothing enrolled).
+      debugPrint('FINIX biometric: hardware key unavailable (${e.code}); '
+          'using a simulated key for this session.');
+    } catch (_) {
+      // MissingPluginException on web/desktop.
+      debugPrint('FINIX biometric: no native implementation on this platform; '
+          'using a simulated key.');
     }
-    
+
     return BiometricKeyPair(
       publicKey: 'MIIBMzCB7gYHKoZIzj0CAQYFK4EEAEMDNgAEw09S+p6358KjI3a9b1...mock',
       keyId: 'mock-key-handle-f8385b27',
+      hardwareBacked: false,
     );
   }
 
@@ -115,8 +131,21 @@ class FinixBiometric {
 }
 
 class BiometricKeyPair {
-  final String publicKey;  // base64-encoded SPKI
-  final String keyId;      // platform key reference
+  /// Base64 uncompressed SEC1 P-256 point (0x04 || X || Y) — the encoding the
+  /// backend parses in internal/domain/security/webauthn.go.
+  final String publicKey;
 
-  BiometricKeyPair({required this.publicKey, required this.keyId});
+  /// Android Keystore alias for the private key. The private key never leaves
+  /// the secure hardware.
+  final String keyId;
+
+  /// False when this is the simulated fallback (web/desktop, or no biometric
+  /// enrolled) rather than a real hardware-backed key.
+  final bool hardwareBacked;
+
+  BiometricKeyPair({
+    required this.publicKey,
+    required this.keyId,
+    this.hardwareBacked = false,
+  });
 }

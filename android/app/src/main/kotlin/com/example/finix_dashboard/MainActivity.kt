@@ -20,9 +20,9 @@ import io.flutter.plugin.common.MethodChannel
  * No IMEI / MAC / serial is read, so nothing here needs a runtime permission or
  * trips Play policy restrictions.
  *
- * The biometric channel (`com.finix.hardware/biometric`) is intentionally NOT
- * implemented: real StrongBox-backed key attestation is a separate piece of
- * work, and the Dart side already degrades to a simulated signer.
+ * The biometric channel (`com.finix.hardware/biometric`) is handled by
+ * [BiometricChannel], which issues real Keystore/StrongBox P-256 keys gated by
+ * BiometricPrompt.
  */
 class MainActivity : FlutterActivity() {
 
@@ -40,6 +40,10 @@ class MainActivity : FlutterActivity() {
                     else -> result.notImplemented()
                 }
             }
+
+        // Hardware-backed biometric signing (see BiometricChannel).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BiometricChannel.CHANNEL)
+            .setMethodCallHandler(BiometricChannel(this))
     }
 
     /**

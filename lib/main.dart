@@ -3,7 +3,7 @@ import 'package:flutter/material.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'screens/home_dashboard.dart';
 import 'screens/bottom_nav_bar.dart';
-import 'screens/ekyc.dart';
+import 'screens/login_ckyc.dart';
 import 'services/api_service.dart';
 
 final GlobalKey<NavigatorState> navigatorKey = GlobalKey<NavigatorState>();
@@ -106,7 +106,9 @@ class FinixApp extends StatelessWidget {
       builder: (context, child) {
         return MobileDeviceFrame(child: child!);
       },
-      home: const EkycScreen(),
+      // Sign in with the 10-digit cKYC number + PIN. New users reach eKYC
+      // onboarding from a link on that screen.
+      home: const LoginCkycScreen(),
     );
   }
 }

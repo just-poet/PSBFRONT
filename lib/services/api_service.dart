@@ -5,6 +5,17 @@ import 'package:http/http.dart' as http;
 import 'package:shared_preferences/shared_preferences.dart';
 import 'hardware_service.dart';
 
+/// Raised when the backend is reachable but rejects the request, or cannot be
+/// reached at all. Used by flows where silently returning mock data would be
+/// wrong — sign-in above all.
+class ApiException implements Exception {
+  final String message;
+  ApiException(this.message);
+
+  @override
+  String toString() => message;
+}
+
 class ApiService {
   static final ApiService instance = ApiService._internal();
   ApiService._internal();
@@ -279,6 +290,68 @@ class ApiService {
       'accessToken': mockToken,
       'expiresInSeconds': 900,
     };
+  }
+
+  /// Signs in with the 10-digit Central KYC number and the 6-digit PIN.
+  ///
+  /// This is the app's primary login: no phone number is involved, so a demo
+  /// works without any real mobile. The backend resolves the CKYC to an account
+  /// and returns a short-lived JWT, which is stored for subsequent calls.
+  ///
+  /// Throws [ApiException] on a rejected login so the UI can show the reason —
+  /// unlike the read-only getters, a failed sign-in must NOT fall through to
+  /// mock data and pretend the user is authenticated.
+  Future<Map<String, dynamic>> loginWithCkyc(String ckyc, String pin) async {
+    final body = {
+      'ckyc': ckyc.trim(),
+      'pin': pin.trim(),
+      'deviceIdFingerprint': deviceIdFingerprint ?? '',
+      'deviceType': 'Android',
+      'appVersion': '1.0.0',
+    };
+
+    late http.Response response;
+    try {
+      response = await _client
+          .post(
+            Uri.parse('$baseUrl/v1/auth/login/pin'),
+            headers: _headers(requireAuth: false, isMutation: true),
+            body: jsonEncode(body),
+          )
+          .timeout(const Duration(seconds: 10));
+    } catch (_) {
+      isConnected.value = false;
+      throw ApiException(
+        'Cannot reach the FINIX server. Check that the backend is running '
+        'and the API address is correct.',
+      );
+    }
+
+    if (response.statusCode == 200 || response.statusCode == 201) {
+      isConnected.value = true;
+      final data = jsonDecode(response.body) as Map<String, dynamic>;
+      final token = data['accessToken'];
+      final uid = data['userId'];
+      if (token is String && uid is String) {
+        await saveSession(token, uid);
+      }
+      return data;
+    }
+
+    isConnected.value = true; // reachable, just rejected
+    throw ApiException(_errorMessage(response.body, 'Invalid CKYC number or PIN.'));
+  }
+
+  /// Pulls a human-readable message out of the backend's {"error": "..."} body.
+  String _errorMessage(String body, String fallback) {
+    try {
+      final decoded = jsonDecode(body);
+      if (decoded is Map && decoded['error'] is String) {
+        final msg = (decoded['error'] as String).trim();
+        if (msg.isNotEmpty) return msg;
+      }
+    } catch (_) {}
+    return fallback;
   }
 
   Future<Map<String, dynamic>> getProfile() async {
