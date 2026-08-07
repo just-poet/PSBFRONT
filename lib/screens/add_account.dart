@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class AddAccountScreen extends StatefulWidget {
@@ -307,7 +309,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
 
                       // Heading
                       Text(
-                        'Linking your account',
+                        tr('Linking your account'),
                         style: GoogleFonts.inter(
                           fontSize: 18,
                           fontWeight: FontWeight.bold,
@@ -405,7 +407,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                         children: [
                           const TextSpan(text: 'Account linked\n'),
                           TextSpan(
-                            text: 'successfully!',
+                            text: tr('successfully!'),
                             style: GoogleFonts.fraunces(
                               color: const Color(0xFF10B981),
                               fontStyle: FontStyle.italic,
@@ -447,7 +449,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'LINKED DETAILS',
+                            tr('LINKED DETAILS'),
                             style: GoogleFonts.inter(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
@@ -502,7 +504,7 @@ class _AddAccountScreenState extends State<AddAccountScreen> {
                   ),
                   child: Center(
                     child: Text(
-                      'Done',
+                      tr('Done'),
                       style: GoogleFonts.inter(
                         color: Colors.white,
                         fontSize: 15,
@@ -590,7 +592,7 @@ class _AppBar extends StatelessWidget {
           ),
           // Title
           Text(
-            'Add Account',
+            tr('Add Account'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,

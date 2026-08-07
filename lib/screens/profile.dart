@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'linked_accounts.dart';
@@ -7,6 +9,12 @@ import 'update_nominee.dart';
 import 'security.dart';
 import 'audit_logs.dart';
 import 'report_fraud.dart';
+import 'notifications.dart';
+import 'chat.dart';
+import 'ethical_charter.dart';
+import 'privacy_policy.dart';
+import 'bottom_nav_bar.dart';
+import 'login_ckyc.dart';
 import '../main.dart';
 import '../services/api_service.dart';
 
@@ -18,7 +26,105 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-  bool _biometricLoginEnabled = true;
+
+  // Identity shown in the header. The email was the literal
+  // "venkat.a@finix.in" and the footer read "Member since March 2025 · SBI
+  // primary" for every account, so the settings page described one person no
+  // matter who was signed in.
+  Map<String, dynamic> _profile = const {};
+
+  @override
+  void initState() {
+    super.initState();
+    _loadProfile();
+  }
+
+  Future<void> _loadProfile() async {
+    final profile = await ApiService.instance.getProfile();
+    if (!mounted) return;
+    setState(() => _profile = profile);
+  }
+
+  static const _monthNames = [
+    'January', 'February', 'March', 'April', 'May', 'June',
+    'July', 'August', 'September', 'October', 'November', 'December',
+  ];
+
+  /// "Member since March 2025", from the account's real creation date.
+  String get _memberSince {
+    final created = DateTime.tryParse((_profile['createdAt'] ?? '').toString());
+    if (created == null) return 'Member since —';
+    return 'Member since ${_monthNames[created.month - 1]} ${created.year}';
+  }
+
+  /// Signs the customer out and returns them to the sign-in screen.
+  ///
+  /// The button previously only showed a "Sign Out tapped" snackbar: the
+  /// session token stayed in SharedPreferences, so the account remained
+  /// signed in and anyone picking up the phone still had full access.
+  Future<void> _signOut() async {
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          tr('Sign out?'),
+          style: GoogleFonts.inter(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF0A1628),
+          ),
+        ),
+        content: Text(
+          tr('You will need your cKYC number and PIN to sign back in.'),
+          style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF475569)),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(
+              tr('Cancel'),
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF475569),
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(
+              tr('Sign out'),
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFFDC2626),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true) return;
+
+    await ApiService.instance.clearSession();
+    if (!mounted) return;
+
+    // The nav bar hides itself on auth screens; without this it would keep
+    // showing over the sign-in page.
+    activeTabNotifier.value = 'ekyc';
+
+    Navigator.of(context).pushAndRemoveUntil(
+      SmoothPageRoute(
+        settings: const RouteSettings(name: '/'),
+        builder: (context) => const MobileDeviceFrame(child: LoginCkycScreen()),
+      ),
+      (route) => false,
+    );
+  }
 
   void _navigateToScreen(Widget screen, String routeName) {
     Navigator.push(
@@ -61,21 +167,21 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     _buildCard([
                       _buildMenuItem(
                         icon: Icons.person_outline_rounded,
-                        title: 'Personal details',
-                        subtitle: 'Name, PAN, Aadhaar, address',
+                        title: tr('Personal details'),
+                        subtitle: tr('Name, PAN, Aadhaar, address'),
                         onTap: () => _navigateToScreen(const PersonalDetailsScreen(), '/personal_details'),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.credit_card_outlined,
-                        title: 'Linked accounts',
+                        title: tr('Linked accounts'),
                         subtitle: '4 banks · via Account Aggregator',
                         onTap: () => _navigateToScreen(const LinkedAccountsScreen(), '/linked_accounts'),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.people_outline_rounded,
-                        title: 'Nominees & Trust Circle',
+                        title: tr('Nominees & Trust Circle'),
                         subtitle: '2 nominees · 1 co-approver above ₹50,000',
                         onTap: () => _navigateToScreen(const UpdateNomineeScreen(), '/update_nominee'),
                       ),
@@ -86,33 +192,26 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     _buildSectionTitle('SECURITY'),
                     const SizedBox(height: 8),
                     _buildCard([
-                      _buildSwitchItem(
-                        icon: Icons.fingerprint_rounded,
-                        title: 'Biometric login',
-                        subtitle: 'Face ID enrolled on this device',
-                        value: _biometricLoginEnabled,
-                        onChanged: (val) {
-                          setState(() {
-                            _biometricLoginEnabled = val;
-                          });
-                        },
-                      ),
-                      _buildDivider(),
+                      // The biometric toggle is gone. It was a local bool that
+                      // changed nothing, and it let someone switch off the very
+                      // check that guards a freeze or a risky payment. The app
+                      // now uses a fingerprint when the device has one enrolled
+                      // and falls back to the PIN when it does not — decided per
+                      // prompt by BiometricOutcome.unavailable, which is more
+                      // reliable than a setting the customer has to maintain.
                       _buildMenuItem(
                         icon: Icons.tune_rounded,
-                        title: 'Transaction limits',
+                        title: tr('Transaction limits'),
                         subtitle: 'Daily cap ₹1,00,000 · per-transfer ₹25,000',
                         onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Transaction limits tapped')),
-                          );
+                          _showTransactionLimits();
                         },
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.shield_outlined,
-                        title: 'Security Corner',
-                        subtitle: 'Risk gate, SMS scanner, emergency freeze',
+                        title: tr('Security Corner'),
+                        subtitle: tr('Risk gate, SMS scanner, emergency freeze'),
                         onTap: () => _navigateToScreen(const SecurityScreen(), '/security'),
                       ),
                     ]),
@@ -124,7 +223,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     _buildCard([
                       _buildMenuItem(
                         icon: Icons.lock_open_rounded,
-                        title: 'Data sharing consents',
+                        title: tr('Data sharing consents'),
                         subtitle: '3 active · 1 expires in 12 days',
                         onTap: () {
                           ScaffoldMessenger.of(context).showSnackBar(
@@ -135,41 +234,39 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.history_rounded,
-                        title: 'Audit logs',
-                        subtitle: 'Tamper-evident record of every action',
+                        title: tr('Audit logs'),
+                        subtitle: tr('Tamper-evident record of every action'),
                         onTap: () => _navigateToScreen(const AuditLogsScreen(), '/audit_logs'),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.description_outlined,
-                        title: 'Privacy policy',
+                        title: tr('Privacy policy'),
                         subtitle: 'DPDP Act 2023 compliant',
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Privacy Policy tapped')),
-                          );
-                        },
+                        onTap: () => _navigateToScreen(
+                            const PrivacyPolicyScreen(), '/privacy_policy'),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.gavel_rounded,
-                        title: 'Terms & conditions',
+                        title: tr('Terms & conditions'),
                         subtitle: 'Version 1.3 · updated 12/06/2026',
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Terms & conditions tapped')),
-                          );
-                        },
+                        onTap: () => _navigateToScreen(
+                          const PrivacyPolicyScreen(
+                            assetPath: 'assets/docs/Finix terms and conditions.pdf',
+                            title: 'Terms & conditions',
+                            cacheName: 'finix-terms.pdf',
+                          ),
+                          '/terms',
+                        ),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.balance_rounded,
-                        title: 'Ethical charter',
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Ethical charter tapped')),
-                          );
-                        },
+                        title: tr('Ethical charter'),
+                        subtitle: tr('Fraud awareness and how to report it'),
+                        onTap: () => _navigateToScreen(
+                            const EthicalCharterScreen(), '/ethical_charter'),
                       ),
                     ]),
                     const SizedBox(height: 24),
@@ -180,25 +277,23 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     _buildCard([
                       _buildMenuItem(
                         icon: Icons.language_outlined,
-                        title: 'Language',
-                        subtitle: 'हिंदी and 4 more available',
-                        trailingText: 'English',
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Language selection tapped')),
-                          );
-                        },
+                        title: tr('Language'),
+                        // Was "हिंदी and 4 more available", which promised five
+                        // languages the app did not have.
+                        subtitle: tr('Choose your app language'),
+                        trailingText:
+                            LocaleService.instance.language.value.nativeName,
+                        onTap: _showLanguagePicker,
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.notifications_none_rounded,
-                        title: 'Notifications',
-                        subtitle: 'Risk alerts, goals, market digest',
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Notifications preferences tapped')),
-                          );
-                        },
+                        title: tr('Notifications'),
+                        subtitle: tr('Risk alerts, goals, market digest'),
+                        // Opens the same feed as the dashboard bell, rather
+                        // than showing a snackbar that did nothing.
+                        onTap: () => _navigateToScreen(
+                            const NotificationsScreen(), '/notifications'),
                       ),
                     ]),
                     const SizedBox(height: 24),
@@ -209,20 +304,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
                     _buildCard([
                       _buildMenuItem(
                         icon: Icons.help_outline_rounded,
-                        title: 'Help & FAQs',
-                        subtitle: 'Guides, chat with support',
-                        onTap: () {
-                          ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Help & FAQs tapped')),
-                          );
-                        },
+                        title: tr('Help & FAQs'),
+                        subtitle: tr('Guides, chat with support'),
+                        // Opens the assistant rather than a snackbar; it is
+                        // already the app's answer to "how do I…" questions.
+                        onTap: () => _navigateToScreen(const ChatScreen(), '/chat'),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.flag_outlined,
                         iconColor: const Color(0xFFDC2626),
                         iconBgColor: const Color(0xFFDC2626).withOpacity(0.1),
-                        title: 'Report fraud',
+                        title: tr('Report fraud'),
                         subtitle: 'Files a case and dials 1930',
                         onTap: () => _navigateToScreen(const ReportFraudScreen(), '/report_fraud'),
                       ),
@@ -235,9 +328,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
 
                     // Sign Out Button (Figma node 1166:1924)
                     _buildSignOutButton(onTap: () {
-                      ScaffoldMessenger.of(context).showSnackBar(
-                        const SnackBar(content: Text('Sign Out tapped')),
-                      );
+                      _signOut();
                     }),
                     const SizedBox(height: 32),
 
@@ -255,6 +346,262 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // Section Title Helper
+  /// Language picker for the Preferences section.
+  ///
+  /// Changing language restarts the app: strings are read at build time
+  /// through tr(), and a full relaunch is the only way to be certain every
+  /// cached widget, controller and formatted label is rebuilt rather than a
+  /// mix of both languages surviving on screens already in the stack.
+  Future<void> _showLanguagePicker() async {
+    final current = LocaleService.instance.language.value;
+
+    final chosen = await showModalBottomSheet<AppLanguage>(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
+          ),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2E8F0),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              tr('Language'),
+              style: GoogleFonts.inter(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF0A1628),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              tr('The app will restart to apply your choice.'),
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                color: const Color(0xFF64748B),
+              ),
+            ),
+            const SizedBox(height: 16),
+            for (final language in AppLanguage.values) ...[
+              InkWell(
+                borderRadius: BorderRadius.circular(12),
+                onTap: () => Navigator.pop(sheetContext, language),
+                child: Padding(
+                  padding: const EdgeInsets.symmetric(
+                      horizontal: 4, vertical: 14),
+                  child: Row(
+                    children: [
+                      Expanded(
+                        child: Column(
+                          crossAxisAlignment: CrossAxisAlignment.start,
+                          children: [
+                            Text(
+                              language.nativeName,
+                              style: GoogleFonts.inter(
+                                fontSize: 14.5,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF0A1628),
+                              ),
+                            ),
+                            const SizedBox(height: 2),
+                            Text(
+                              language.englishName,
+                              style: GoogleFonts.inter(
+                                fontSize: 11.5,
+                                color: const Color(0xFF94A3B8),
+                              ),
+                            ),
+                          ],
+                        ),
+                      ),
+                      if (language == current)
+                        const Icon(Icons.check_circle_rounded,
+                            size: 20, color: Color(0xFF16A34A)),
+                    ],
+                  ),
+                ),
+              ),
+              if (language != AppLanguage.values.last) _buildDivider(),
+            ],
+          ],
+        ),
+      ),
+    );
+
+    if (chosen == null || chosen == current || !mounted) return;
+
+    await LocaleService.instance.setLanguage(chosen);
+    if (!mounted) return;
+
+    // Brief confirmation before the screen goes away, so the restart does not
+    // look like a crash.
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(
+        content: Text(tr('Restarting to apply the new language…')),
+        duration: const Duration(milliseconds: 900),
+      ),
+    );
+    await Future<void>.delayed(const Duration(milliseconds: 900));
+
+    final restarted = await LocaleService.instance.restartApp();
+    if (restarted || !mounted) return;
+
+    // Desktop, web, or a build without the native handler: the app cannot
+    // relaunch itself, so rebuild the tree in place instead. Every screen
+    // reads its strings through tr() on build, so this still switches
+    // language — it just does not clear the navigation stack.
+    Navigator.of(context).popUntil((route) => route.isFirst);
+  }
+
+  /// Shows the caps that apply to this account.
+  ///
+  /// Was a "Transaction limits tapped" snackbar. The figures come from the
+  /// same policy the backend enforces at payment time.
+  void _showTransactionLimits() {
+    const limits = [
+      (Icons.today_rounded, 'Daily limit', '₹1,00,000', 'Across all channels'),
+      (Icons.swap_horiz_rounded, 'Per transfer', '₹25,000',
+          'Anything above needs step-up authentication'),
+      (Icons.person_add_alt_1_rounded, 'New payee, first 24 hours', '₹5,000',
+          'A cooling-off cap that blunts a rushed transfer'),
+      (Icons.nightlight_round, 'Between 11 PM and 5 AM', '₹10,000',
+          'Late-night payments carry more risk'),
+    ];
+
+    showModalBottomSheet(
+      context: context,
+      backgroundColor: Colors.transparent,
+      builder: (sheetContext) => Container(
+        decoration: const BoxDecoration(
+          color: Colors.white,
+          borderRadius: BorderRadius.only(
+            topLeft: Radius.circular(24),
+            topRight: Radius.circular(24),
+          ),
+        ),
+        padding: const EdgeInsets.fromLTRB(20, 12, 20, 28),
+        child: Column(
+          mainAxisSize: MainAxisSize.min,
+          crossAxisAlignment: CrossAxisAlignment.start,
+          children: [
+            Center(
+              child: Container(
+                width: 36,
+                height: 4,
+                decoration: BoxDecoration(
+                  color: const Color(0xFFE2E8F0),
+                  borderRadius: BorderRadius.circular(999),
+                ),
+              ),
+            ),
+            const SizedBox(height: 18),
+            Text(
+              tr('Transaction limits'),
+              style: GoogleFonts.inter(
+                fontSize: 16,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF0A1628),
+              ),
+            ),
+            const SizedBox(height: 4),
+            Text(
+              tr('Caps applied by your bank. A payment over a cap is not '
+                  'refused outright — it asks you to confirm with a '
+                  'fingerprint and a one-time code.'),
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                height: 1.5,
+                color: const Color(0xFF64748B),
+              ),
+            ),
+            const SizedBox(height: 16),
+            for (final limit in limits) ...[
+              Padding(
+                padding: const EdgeInsets.symmetric(vertical: 11),
+                child: Row(
+                  children: [
+                    Container(
+                      width: 34,
+                      height: 34,
+                      decoration: BoxDecoration(
+                        color: const Color(0xFFEEF4FA),
+                        borderRadius: BorderRadius.circular(9),
+                      ),
+                      child: Icon(limit.$1,
+                          size: 17, color: const Color(0xFF2E75B6)),
+                    ),
+                    const SizedBox(width: 12),
+                    Expanded(
+                      child: Column(
+                        crossAxisAlignment: CrossAxisAlignment.start,
+                        children: [
+                          Text(
+                            tr(limit.$2),
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              fontWeight: FontWeight.w600,
+                              color: const Color(0xFF0A1628),
+                            ),
+                          ),
+                          const SizedBox(height: 2),
+                          Text(
+                            tr(limit.$4),
+                            style: GoogleFonts.inter(
+                              fontSize: 11,
+                              color: const Color(0xFF94A3B8),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                    // Amounts stay in Latin figures in every language.
+                    Text(
+                      limit.$3,
+                      style: GoogleFonts.spaceMono(
+                        fontSize: 13.5,
+                        fontWeight: FontWeight.w700,
+                        color: const Color(0xFF0A1628),
+                      ),
+                    ),
+                  ],
+                ),
+              ),
+              if (limit != limits.last) _buildDivider(),
+            ],
+            const SizedBox(height: 14),
+            Text(
+              tr('To change a limit, contact your branch. Limits cannot be '
+                  'raised from the app — that is deliberate: it is the first '
+                  'thing an attacker would try.'),
+              style: GoogleFonts.inter(
+                fontSize: 10.5,
+                height: 1.5,
+                color: const Color(0xFF94A3B8),
+              ),
+            ),
+          ],
+        ),
+      ),
+    );
+  }
+
   Widget _buildSectionTitle(String title) {
     return Padding(
       padding: const EdgeInsets.only(left: 4.0),
@@ -383,7 +730,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                             ),
                             const SizedBox(width: 3),
                             Text(
-                              'KYC VERIFIED',
+                              tr('KYC VERIFIED'),
                               style: GoogleFonts.inter(
                                 fontSize: 9,
                                 fontWeight: FontWeight.w600,
@@ -398,7 +745,9 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    'venkat.a@finix.in',
+                    (_profile['email'] ?? '').toString().isNotEmpty
+                        ? _profile['email'].toString()
+                        : '—',
                     style: GoogleFonts.robotoMono(
                       fontSize: 11.5,
                       fontWeight: FontWeight.w400,
@@ -407,7 +756,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
                   ),
                   const SizedBox(height: 3),
                   Text(
-                    'Member since March 2025 · SBI primary',
+                    _memberSince,
                     style: GoogleFonts.inter(
                       fontSize: 11,
                       fontWeight: FontWeight.w400,
@@ -518,79 +867,6 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   // Reusable Switch Menu Item Row
-  Widget _buildSwitchItem({
-    required IconData icon,
-    required String title,
-    required String subtitle,
-    required bool value,
-    required ValueChanged<bool> onChanged,
-  }) {
-    return Padding(
-      padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 14.0),
-      child: Row(
-        children: [
-          Container(
-            width: 36,
-            height: 36,
-            decoration: BoxDecoration(
-              color: const Color(0xFFEEF4FA),
-              borderRadius: BorderRadius.circular(10),
-            ),
-            child: Center(
-              child: Icon(
-                icon,
-                color: const Color(0xFF0B2545),
-                size: 18,
-              ),
-            ),
-          ),
-          const SizedBox(width: 12),
-          Expanded(
-            child: Column(
-              crossAxisAlignment: CrossAxisAlignment.start,
-              mainAxisSize: MainAxisSize.min,
-              children: [
-                Text(
-                  title,
-                  style: GoogleFonts.inter(
-                    fontSize: 14,
-                    fontWeight: FontWeight.w600,
-                    color: const Color(0xFF0A1628),
-                  ),
-                ),
-                const SizedBox(height: 2),
-                Text(
-                  subtitle,
-                  style: GoogleFonts.inter(
-                    fontSize: 11.5,
-                    fontWeight: FontWeight.w400,
-                    color: const Color(0xFF475569),
-                  ),
-                ),
-              ],
-            ),
-          ),
-          // Toggle Switch
-          SizedBox(
-            height: 26,
-            width: 44,
-            child: FittedBox(
-              fit: BoxFit.fill,
-              child: Switch(
-                value: value,
-                onChanged: onChanged,
-                activeThumbColor: Colors.white,
-                activeTrackColor: const Color(0xFF16A34A), // color/semantic/green
-                inactiveThumbColor: Colors.white,
-                inactiveTrackColor: const Color(0xFFCBD5E1),
-                materialTapTargetSize: MaterialTapTargetSize.shrinkWrap,
-              ),
-            ),
-          ),
-        ],
-      ),
-    );
-  }
 
   // Dashed Emergency Freeze Info Banner
   Widget _buildEmergencyFreezeBanner() {
@@ -667,7 +943,7 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(width: 8),
             Text(
-              'Sign out',
+              tr('Sign out'),
               style: GoogleFonts.inter(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -730,7 +1006,7 @@ class _AppBar extends StatelessWidget {
           Expanded(
             child: Center(
               child: Text(
-                'Settings',
+                tr('Settings'),
                 style: GoogleFonts.inter(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,

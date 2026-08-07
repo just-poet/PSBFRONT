@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'add_account.dart';
@@ -17,45 +19,30 @@ class _LinkedAccountsScreenState extends State<LinkedAccountsScreen> {
   List<Map<String, dynamic>> _linkedBanks = [];
   bool _isLoading = false;
 
-  final List<Map<String, dynamic>> _fallbackBanks = [
-    {
-      'logoText': 'SBI',
-      'logoBgColor': const Color(0xFFE6F0F8),
-      'logoTextColor': const Color(0xFF0B4F8C),
-      'bankName': 'State Bank of India',
-      'accountsCount': '2 accounts',
-      'balance': '₹2,87,450',
-    },
-    {
-      'logoText': 'HDFC',
-      'logoBgColor': const Color(0xFFFFE6E1),
-      'logoTextColor': const Color(0xFFB8311C),
-      'bankName': 'HDFC Bank',
-      'accountsCount': '2 accounts',
-      'balance': '₹1,84,720',
-    },
-    {
-      'logoText': 'ICICI',
-      'logoBgColor': const Color(0xFFFFF1DE),
-      'logoTextColor': const Color(0xFFA8541F),
-      'bankName': 'ICICI Bank',
-      'accountsCount': '2 accounts',
-      'balance': '₹84,250',
-    },
-    {
-      'logoText': 'AXIS',
-      'logoBgColor': const Color(0xFFF5E6E6),
-      'logoTextColor': const Color(0xFF8B1538),
-      'bankName': 'Axis Bank',
-      'accountsCount': '1 account',
-      'balance': '₹28,500',
-    },
-  ];
+  // There used to be a _fallbackBanks list of four real-looking banks with
+  // balances. When the API returned nothing — signed out, offline, or a
+  // customer with no linked accounts — the screen quietly showed those instead,
+  // so the user saw someone else's money. An empty list now shows an empty
+  // state.
 
   @override
   void initState() {
     super.initState();
+    // Re-read whenever the customer changes something anywhere in the app.
+    // Without this the screen kept whatever it loaded on first build, so a
+    // payment made elsewhere left stale figures here.
+    ApiService.instance.dataVersion.addListener(_onDataChanged);
     _fetchAccounts();
+  }
+
+  @override
+  void dispose() {
+    ApiService.instance.dataVersion.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (mounted) _fetchAccounts();
   }
 
   Future<void> _fetchAccounts() async {
@@ -64,18 +51,14 @@ class _LinkedAccountsScreenState extends State<LinkedAccountsScreen> {
       final apiAccs = await ApiService.instance.getAccounts();
       if (mounted) {
         setState(() {
-          if (apiAccs.isNotEmpty) {
-            _linkedBanks = apiAccs.map((a) => _mapApiAccount(a)).toList();
-          } else {
-            _linkedBanks = List.from(_fallbackBanks);
-          }
+          _linkedBanks = apiAccs.map(_mapApiAccount).toList();
           _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _linkedBanks = List.from(_fallbackBanks);
+          _linkedBanks = [];
           _isLoading = false;
         });
       }
@@ -133,15 +116,16 @@ class _LinkedAccountsScreenState extends State<LinkedAccountsScreen> {
       });
       try {
         final cleanStr = (result['balance'] as String).replaceAll('₹', '').replaceAll(',', '').trim();
-        final bal = double.tryParse(cleanStr) ?? 500.0;
-        final int balPaise = (bal * 100).toInt();
+        // The parse guards against a malformed balance string coming back from
+        // the add-account sheet; linkAccount does not take an opening balance.
+        double.tryParse(cleanStr);
         await ApiService.instance.linkAccount(
           bankName: result['bankName'],
           upiId: result['upiId'] ?? '${result['logoText'].toLowerCase()}@finix',
           accountNumber: '1234567890',
           ifscCode: 'SBIN0000000',
           accountType: 'Savings',
-          holderName: 'Aditya Kumar',
+          holderName: ApiService.instance.userName.value ?? 'Account holder',
         );
       } catch (_) {}
     }
@@ -193,7 +177,46 @@ class _LinkedAccountsScreenState extends State<LinkedAccountsScreen> {
                     const SizedBox(height: 14),
 
                     // Bank List
-                    ListView.separated(
+                    if (_isLoading)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 28),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (_linkedBanks.isEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 28),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(Icons.account_balance_outlined,
+                                size: 28, color: Color(0xFF94A3B8)),
+                            const SizedBox(height: 8),
+                            Text(
+                              tr('No linked accounts yet'),
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF334155),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              tr('Link a bank above to see balances here.'),
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: const Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      ListView.separated(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: _linkedBanks.length,
@@ -252,7 +275,7 @@ class _LinkedAccountsScreenState extends State<LinkedAccountsScreen> {
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'TOTAL COMBINED BALANCE',
+              tr('TOTAL COMBINED BALANCE'),
               style: GoogleFonts.inter(
                 color: Colors.white.withOpacity(0.7),
                 fontSize: 11,
@@ -294,9 +317,9 @@ class _LinkedAccountsScreenState extends State<LinkedAccountsScreen> {
                       fontSize: 12,
                     ),
                     children: [
-                      const TextSpan(text: 'Last sync: '),
+                      TextSpan(text: tr('Last sync: ')),
                       TextSpan(
-                        text: 'Just now',
+                        text: tr('Just now'),
                         style: GoogleFonts.inter(
                           fontWeight: FontWeight.w600,
                           color: Colors.white,
@@ -320,7 +343,7 @@ class _LinkedAccountsScreenState extends State<LinkedAccountsScreen> {
       child: GestureDetector(
         onTap: _linkNewAccount,
         child: Text(
-          '+ Link a new account',
+          tr('+ Link a new account'),
           style: GoogleFonts.inter(
             fontSize: 14,
             fontWeight: FontWeight.w700,
@@ -402,7 +425,7 @@ class _LinkedAccountsScreenState extends State<LinkedAccountsScreen> {
             crossAxisAlignment: CrossAxisAlignment.end,
             children: [
               Text(
-                'TOTAL',
+                tr('TOTAL'),
                 style: GoogleFonts.inter(
                   fontSize: 9,
                   fontWeight: FontWeight.w500,
@@ -494,7 +517,7 @@ class _AppBar extends StatelessWidget {
           ),
           // Title
           Text(
-            'Linked Accounts',
+            tr('Linked Accounts'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -562,7 +585,7 @@ class _SecurityInfoCard extends StatelessWidget {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'ACCOUNT AGGREGATOR',
+                  tr('ACCOUNT AGGREGATOR'),
                   style: GoogleFonts.inter(
                     fontSize: 9,
                     fontWeight: FontWeight.w600,

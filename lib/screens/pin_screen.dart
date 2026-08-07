@@ -1,5 +1,9 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+
+import '../services/api_service.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class PinScreen extends StatefulWidget {
@@ -8,12 +12,25 @@ class PinScreen extends StatefulWidget {
   final double amount;
   final VoidCallback onSuccess;
 
+  /// Runs after the PIN is accepted but *before* the success animation.
+  ///
+  /// Return false to abandon without celebrating — a payment the risk engine
+  /// flagged, or one the customer then cancelled. Without this the screen
+  /// played "Authorising…" and a success tick for 2.2s and only then handed
+  /// control back, so the customer watched a payment succeed and was told
+  /// afterwards that it looked risky.
+  ///
+  /// Optional: call sites that have nothing to check leave it null and keep the
+  /// original behaviour.
+  final Future<bool> Function()? onAuthorise;
+
   const PinScreen({
     super.key,
     this.title = 'Enter your 6-digit PIN',
     required this.subtitle,
     required this.amount,
     required this.onSuccess,
+    this.onAuthorise,
   });
 
   @override
@@ -24,16 +41,59 @@ class _PinScreenState extends State<PinScreen> {
   String _pin = '';
   bool _isAuthorising = false;
   bool _showSuccess = false;
+  bool _checkingPin = false;
+  String? _pinError;
+
+  /// Wrong attempts in a row. The screen gives up after this many rather than
+  /// letting someone sit and guess.
+  int _attempts = 0;
+  static const int _maxAttempts = 3;
 
   void _onKeyPress(String val) {
+    if (_checkingPin) return;
     if (_pin.length < 6) {
       setState(() {
         _pin += val;
+        _pinError = null;
       });
       if (_pin.length == 6) {
-        _startAuthorisation();
+        _verifyThenAuthorise();
       }
     }
+  }
+
+  /// Checks the PIN against the backend before anything else happens.
+  ///
+  /// This screen used to accept any six digits — `_onKeyPress` called
+  /// `_startAuthorisation()` the moment the sixth digit landed, without ever
+  /// checking them. Every PIN gate in the app (payments, unfreeze) was
+  /// therefore decorative.
+  Future<void> _verifyThenAuthorise() async {
+    setState(() => _checkingPin = true);
+
+    final ok = await ApiService.instance.verifyPin(_pin);
+    if (!mounted) return;
+
+    if (!ok) {
+      _attempts++;
+      setState(() {
+        _checkingPin = false;
+        _pin = '';
+        _pinError = _attempts >= _maxAttempts
+            ? tr('Too many incorrect attempts.')
+            : tr('Incorrect PIN. Try again.');
+      });
+      if (_attempts >= _maxAttempts && Navigator.canPop(context)) {
+        Navigator.pop(context);
+      }
+      return;
+    }
+
+    setState(() {
+      _checkingPin = false;
+      _attempts = 0;
+    });
+    _startAuthorisation();
   }
 
   void _onBackspace() {
@@ -52,24 +112,38 @@ class _PinScreenState extends State<PinScreen> {
     _startAuthorisation();
   }
 
-  void _startAuthorisation() {
+  Future<void> _startAuthorisation() async {
     setState(() {
       _isAuthorising = true;
     });
 
-    // Simulate authorization sequence
-    Timer(const Duration(milliseconds: 1200), () {
+    // Hold the "Authorising…" state while the real work happens, rather than
+    // running a fixed timer and celebrating regardless of the outcome.
+    final authorise = widget.onAuthorise;
+    if (authorise != null) {
+      final proceed = await authorise();
       if (!mounted) return;
-      setState(() {
-        _isAuthorising = false;
-        _showSuccess = true;
-      });
+      if (!proceed) {
+        // Flagged, cancelled or failed. The caller has already explained why
+        // and handled navigation; just stop showing the spinner.
+        setState(() => _isAuthorising = false);
+        return;
+      }
+    } else {
+      // No work to do: keep the original beat so the screen does not flash.
+      await Future<void>.delayed(const Duration(milliseconds: 1200));
+      if (!mounted) return;
+    }
 
-      // Show success screen for 1 second, then trigger redirect callback
-      Timer(const Duration(milliseconds: 1000), () {
-        if (!mounted) return;
-        widget.onSuccess();
-      });
+    setState(() {
+      _isAuthorising = false;
+      _showSuccess = true;
+    });
+
+    // Show success for a moment, then hand back to the caller.
+    Timer(const Duration(milliseconds: 1000), () {
+      if (!mounted) return;
+      widget.onSuccess();
     });
   }
 
@@ -142,7 +216,7 @@ class _PinScreenState extends State<PinScreen> {
                         );
                       },
                       child: Text(
-                        'Forgot PIN?',
+                        tr('Forgot PIN?'),
                         style: GoogleFonts.inter(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -154,6 +228,9 @@ class _PinScreenState extends State<PinScreen> {
                 ),
               ),
             ),
+
+            // Wrong-PIN feedback, and a spinner while the code is checked.
+            _buildPinError(),
 
             // 4. Custom Numeric Keypad
             _buildKeypad(),
@@ -239,6 +316,33 @@ class _PinScreenState extends State<PinScreen> {
           );
         }
       }),
+    );
+  }
+
+  /// Inline error under the PIN dots.
+  Widget _buildPinError() {
+    if (_checkingPin) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 2),
+        child: SizedBox(
+          width: 16,
+          height: 16,
+          child: CircularProgressIndicator(strokeWidth: 2),
+        ),
+      );
+    }
+    if (_pinError == null) return const SizedBox(height: 18);
+    return Padding(
+      padding: const EdgeInsets.only(top: 4, bottom: 2),
+      child: Text(
+        _pinError!,
+        textAlign: TextAlign.center,
+        style: GoogleFonts.inter(
+          fontSize: 12,
+          fontWeight: FontWeight.w500,
+          color: const Color(0xFFDC2626),
+        ),
+      ),
     );
   }
 
@@ -371,7 +475,7 @@ class _PinScreenState extends State<PinScreen> {
               ),
               const SizedBox(height: 32),
               Text(
-                'Authorising Transaction...',
+                tr('Authorising Transaction...'),
                 style: GoogleFonts.inter(
                   fontSize: 18,
                   fontWeight: FontWeight.w600,
@@ -380,7 +484,7 @@ class _PinScreenState extends State<PinScreen> {
               ),
               const SizedBox(height: 8),
               Text(
-                'Secure encryption active',
+                tr('Secure encryption active'),
                 style: GoogleFonts.inter(
                   fontSize: 13,
                   fontWeight: FontWeight.w500,
@@ -430,7 +534,7 @@ class _PinScreenState extends State<PinScreen> {
               ),
               const SizedBox(height: 32),
               Text(
-                'Transaction Successful',
+                tr('Transaction Successful'),
                 style: GoogleFonts.inter(
                   fontSize: 22,
                   fontWeight: FontWeight.w700,

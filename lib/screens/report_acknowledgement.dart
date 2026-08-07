@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:flutter/services.dart';
 
@@ -142,7 +144,7 @@ class _ReportAcknowledgementScreenState extends State<ReportAcknowledgementScree
           Expanded(
             child: Center(
               child: Text(
-                'Report Acknowledged',
+                tr('Report Acknowledged'),
                 style: GoogleFonts.inter(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -275,7 +277,7 @@ class _ReportAcknowledgementScreenState extends State<ReportAcknowledgementScree
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'CASE ID',
+                  tr('CASE ID'),
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
@@ -317,7 +319,7 @@ class _ReportAcknowledgementScreenState extends State<ReportAcknowledgementScree
                     border: Border.all(color: Colors.white.withOpacity(0.1)),
                   ),
                   child: Text(
-                    'Under Review',
+                    tr('Under Review'),
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -344,7 +346,7 @@ class _ReportAcknowledgementScreenState extends State<ReportAcknowledgementScree
               children: [
                 // Reported On
                 Text(
-                  'REPORTED ON',
+                  tr('REPORTED ON'),
                   style: GoogleFonts.inter(
                     fontSize: 10,
                     fontWeight: FontWeight.w500,
@@ -373,7 +375,7 @@ class _ReportAcknowledgementScreenState extends State<ReportAcknowledgementScree
 
                 // Reported Via
                 Text(
-                  'REPORTED VIA',
+                  tr('REPORTED VIA'),
                   style: GoogleFonts.inter(
                     fontSize: 10,
                     fontWeight: FontWeight.w500,
@@ -383,7 +385,7 @@ class _ReportAcknowledgementScreenState extends State<ReportAcknowledgementScree
                 ),
                 const SizedBox(height: 4),
                 Text(
-                  'FINIX App',
+                  tr('FINIX App'),
                   style: GoogleFonts.inter(
                     fontSize: 14,
                     fontWeight: FontWeight.w500,
@@ -392,7 +394,7 @@ class _ReportAcknowledgementScreenState extends State<ReportAcknowledgementScree
                 ),
                 const SizedBox(height: 2),
                 Text(
-                  'Verified',
+                  tr('Verified'),
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     fontWeight: FontWeight.w500,
@@ -436,7 +438,7 @@ class _ReportAcknowledgementScreenState extends State<ReportAcknowledgementScree
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'Immediate actions taken',
+            tr('Immediate actions taken'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.bold,
@@ -494,7 +496,7 @@ class _ReportAcknowledgementScreenState extends State<ReportAcknowledgementScree
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'What happens next',
+          tr('What happens next'),
           style: GoogleFonts.inter(
             fontSize: 16,
             fontWeight: FontWeight.w600,
@@ -705,7 +707,7 @@ class _ReportAcknowledgementScreenState extends State<ReportAcknowledgementScree
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    'FINIX INSIGHT',
+                    tr('FINIX INSIGHT'),
                     style: GoogleFonts.inter(
                       fontSize: 10,
                       fontWeight: FontWeight.bold,

@@ -1,4 +1,8 @@
 import 'package:flutter/material.dart';
+
+import '../services/api_service.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'simulation_success.dart';
 import 'smooth_route.dart';
@@ -90,7 +94,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
                   children: [
                     // Heading
                     Text(
-                      'What do you want to try?',
+                      tr('What do you want to try?'),
                       style: GoogleFonts.inter(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -122,7 +126,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
 
                     // What this changes section
                     Text(
-                      'What this changes',
+                      tr('What this changes'),
                       style: GoogleFonts.inter(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -140,7 +144,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
 
                     // How we worked this out section
                     Text(
-                      'How we worked this out',
+                      tr('How we worked this out'),
                       style: GoogleFonts.inter(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -200,7 +204,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
           Expanded(
             child: Center(
               child: Text(
-                'Run a simulation',
+                tr('Run a simulation'),
                 style: GoogleFonts.inter(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -344,7 +348,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'EXTRA EACH MONTH',
+                tr('EXTRA EACH MONTH'),
                 style: GoogleFonts.inter(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -414,7 +418,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
 
           // For how long section
           Text(
-            'FOR HOW LONG',
+            tr('FOR HOW LONG'),
             style: GoogleFonts.inter(
               fontSize: 11,
               fontWeight: FontWeight.w600,
@@ -493,7 +497,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
               ),
               const SizedBox(height: 16),
               Text(
-                'Running compounding projection...',
+                tr('Running compounding projection...'),
                 style: GoogleFonts.inter(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
@@ -557,7 +561,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
             ),
             const SizedBox(width: 8),
             Text(
-              'Run simulation',
+              tr('Run simulation'),
               style: GoogleFonts.inter(
                 fontSize: 15,
                 fontWeight: FontWeight.w600,
@@ -984,7 +988,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'These are projections, not promises',
+                  tr('These are projections, not promises'),
                   style: GoogleFonts.inter(
                     fontSize: 12.5,
                     fontWeight: FontWeight.w600,
@@ -1033,7 +1037,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
               ),
               child: Center(
                 child: Text(
-                  'Save',
+                  tr('Save'),
                   style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,
@@ -1049,11 +1053,26 @@ class _SimulationScreenState extends State<SimulationScreen> {
         Expanded(
           flex: 140, // flex 1.4 equivalent ratio
           child: GestureDetector(
-            onTap: () {
+            // Persists the accepted what-if and raises the monthly
+            // contribution on the customer's first active goal. This used to
+            // show a success message and change nothing, so the goals screen
+            // still showed the old contribution afterwards.
+            onTap: () async {
+              final ok = await ApiService.instance.applySimulation(
+                scenario: 'extra_monthly_contribution',
+                summary:
+                    'Extra ₹${_formatIndianCurrency(_extraAmount.round())} a month',
+                deltaPaise: (_extraAmount * 100).round(),
+              );
+              if (!context.mounted) return;
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
-                  content: Text('Simulated contribution change of ₹${_formatIndianCurrency(_extraAmount.round())} applied!'),
-                  backgroundColor: const Color(0xFF16A34A),
+                  content: Text(ok
+                      ? 'Contribution increased by ₹${_formatIndianCurrency(_extraAmount.round())} a month.'
+                      : 'Could not apply that change. Try again.'),
+                  backgroundColor: ok
+                      ? const Color(0xFF16A34A)
+                      : const Color(0xFFDC2626),
                 ),
               );
             },
@@ -1065,7 +1084,7 @@ class _SimulationScreenState extends State<SimulationScreen> {
               ),
               child: Center(
                 child: Text(
-                  'Apply this change',
+                  tr('Apply this change'),
                   style: GoogleFonts.inter(
                     fontSize: 15,
                     fontWeight: FontWeight.w600,

@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+import '../services/api_service.dart';
 
 class SecurityEventsScreen extends StatefulWidget {
   const SecurityEventsScreen({super.key});
@@ -9,6 +13,28 @@ class SecurityEventsScreen extends StatefulWidget {
 }
 
 class _SecurityEventsScreenState extends State<SecurityEventsScreen> {
+  List<Map<String, dynamic>> _events = const [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final all = await ApiService.instance.getAuditLogs();
+    if (!mounted) return;
+    setState(() {
+      // Only the security-relevant slice; the full trail lives in Audit Logs.
+      _events = all
+          .where((e) => _eventStyles.containsKey((e['eventType'] ?? '').toString()))
+          .take(25)
+          .toList();
+      _loading = false;
+    });
+  }
+
   @override
   Widget build(BuildContext context) {
     return Scaffold(
@@ -33,7 +59,7 @@ class _SecurityEventsScreenState extends State<SecurityEventsScreen> {
 
                     // Section header: Recent activity (Figma node 778:1047)
                     Text(
-                      'Recent activity',
+                      tr('Recent activity'),
                       style: GoogleFonts.inter(
                         fontSize: 13,
                         fontWeight: FontWeight.w600,
@@ -85,7 +111,7 @@ class _SecurityEventsScreenState extends State<SecurityEventsScreen> {
           ),
           // Center title
           Text(
-            'Security Events',
+            tr('Security Events'),
             style: GoogleFonts.inter(
               fontSize: 15,
               fontWeight: FontWeight.w600,
@@ -99,7 +125,7 @@ class _SecurityEventsScreenState extends State<SecurityEventsScreen> {
               ScaffoldMessenger.of(context).showSnackBar(
                 SnackBar(
                   content: Text(
-                    'Ledger database is up to date.',
+                    tr('Ledger database is up to date.'),
                     style: GoogleFonts.inter(fontWeight: FontWeight.w600),
                   ),
                   backgroundColor: const Color(0xFF0B2545),
@@ -156,10 +182,10 @@ class _SecurityEventsScreenState extends State<SecurityEventsScreen> {
                   color: const Color(0xFF475569),
                   height: 1.45,
                 ),
-                children: const [
+                children: [
                   TextSpan(text: 'Each event is written to a tamper-evident log. '),
                   TextSpan(
-                    text: 'Verified',
+                    text: tr('Verified'),
                     style: TextStyle(
                       fontWeight: FontWeight.bold,
                       color: Color(0xFF0A1628),
@@ -175,66 +201,146 @@ class _SecurityEventsScreenState extends State<SecurityEventsScreen> {
     );
   }
 
+  /// Security-relevant entries from the customer's real audit trail.
+  ///
+  /// This was four invented events — a ₹85,000 transfer paused at 1:47 AM, a
+  /// Pixel 8 sign-in from Bengaluru — identical on every account. The audit
+  /// endpoint already records the genuine ones.
   Widget _buildTimeline() {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 32),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_events.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        child: Center(
+          child: Text(
+            tr('No security events recorded yet.'),
+            style: GoogleFonts.inter(
+              fontSize: 12.5,
+              color: const Color(0xFF64748B),
+            ),
+          ),
+        ),
+      );
+    }
+
     return Column(
       children: [
-        // Event 1: Risk warning shown
-        _buildTimelineItem(
-          showLine: true,
-          icon: _buildIconIndicator(
-            icon: Icons.warning_amber_rounded,
-            color: const Color(0xFFDC2626),
-            bgColor: const Color(0xFFDC2626).withOpacity(0.1),
-          ),
-          title: 'Risk warning shown',
-          badge: _buildRiskBadge('High 78'),
-          description: 'Paused a ₹85,000 transfer to a new payee at 1:47 AM. You cancelled it.',
-          time: 'Today, 1:47 AM · Ref HDFC8472',
-        ),
-
-        // Event 2: SMS flagged as fraud
-        _buildTimelineItem(
-          showLine: true,
-          icon: _buildIconIndicator(
-            icon: Icons.chat_bubble_outline_rounded,
-            color: const Color(0xFFF59E0B),
-            bgColor: const Color(0xFFF59E0B).withOpacity(0.1),
-          ),
-          title: 'SMS flagged as fraud',
-          badge: _buildVerifiedBadge(),
-          description: 'A message posing as your bank with a payment link was blocked.',
-          time: 'Yesterday, 6:12 PM',
-        ),
-
-        // Event 3: New device sign-in
-        _buildTimelineItem(
-          showLine: true,
-          icon: _buildIconIndicator(
-            icon: Icons.phone_android_rounded,
-            color: const Color(0xFF2E75B6),
-            bgColor: const Color(0xFFEEF4FA),
-          ),
-          title: 'New device sign-in',
-          badge: _buildVerifiedBadge(),
-          description: 'Signed in from a Pixel 8 · Bengaluru. This was you.',
-          time: '14/06/2026, 9:02 AM',
-        ),
-
-        // Event 4: Emergency Freeze armed
-        _buildTimelineItem(
-          showLine: false,
-          icon: _buildIconIndicator(
-            icon: Icons.lock_outline_rounded,
-            color: const Color(0xFF16A34A),
-            bgColor: const Color(0xFF16A34A).withOpacity(0.1),
-          ),
-          title: 'Emergency Freeze armed',
-          badge: _buildVerifiedBadge(),
-          description: 'Quick-halt protection turned on from Security.',
-          time: '12/06/2026, 4:30 PM',
-        ),
+        for (var i = 0; i < _events.length; i++)
+          Builder(builder: (context) {
+            final event = _events[i];
+            final style = _styleFor(event);
+            return _buildTimelineItem(
+              showLine: i < _events.length - 1,
+              icon: _buildIconIndicator(
+                icon: style.icon,
+                color: style.colour,
+                bgColor: style.colour.withOpacity(0.1),
+              ),
+              title: style.title,
+              badge: (event['outcome'] ?? '').toString() == 'success'
+                  ? _buildVerifiedBadge()
+                  : _buildRiskBadge(
+                      (event['outcome'] ?? 'review').toString().toUpperCase()),
+              description: (event['details'] ?? event['xaiReason'] ?? '')
+                  .toString(),
+              time: _formatWhen(event['timestamp']),
+            );
+          }),
       ],
     );
+  }
+
+  /// Only security-relevant event types reach this screen; payments and score
+  /// recalculations belong in the audit log, not here.
+  static const Map<String, ({String title, IconData icon, Color colour})>
+      _eventStyles = {
+    'pin_login_success': (
+      title: 'Signed in',
+      icon: Icons.login_rounded,
+      colour: Color(0xFF2E75B6)
+    ),
+    'pin_login_failure': (
+      title: 'Failed sign-in attempt',
+      icon: Icons.warning_amber_rounded,
+      colour: Color(0xFFDC2626)
+    ),
+    'biometric_login_success': (
+      title: 'Unlocked with biometrics',
+      icon: Icons.fingerprint_rounded,
+      colour: Color(0xFF16A34A)
+    ),
+    'emergency_freeze': (
+      title: 'Emergency freeze applied',
+      icon: Icons.ac_unit_rounded,
+      colour: Color(0xFFDC2626)
+    ),
+    'account_unfreeze': (
+      title: 'Account unfrozen',
+      icon: Icons.lock_open_rounded,
+      colour: Color(0xFFF59E0B)
+    ),
+    'transaction_blocked': (
+      title: 'Payment blocked',
+      icon: Icons.block_flipped,
+      colour: Color(0xFFDC2626)
+    ),
+    'device_bound': (
+      title: 'New device linked',
+      icon: Icons.phone_android_rounded,
+      colour: Color(0xFF2E75B6)
+    ),
+    'beneficiary_added': (
+      title: 'New payee added',
+      icon: Icons.person_add_alt_1_rounded,
+      colour: Color(0xFFF59E0B)
+    ),
+    'sms_scan': (
+      title: 'Messages scanned',
+      icon: Icons.chat_bubble_outline_rounded,
+      colour: Color(0xFF2E75B6)
+    ),
+    'consent_granted': (
+      title: 'Consent granted',
+      icon: Icons.verified_user_outlined,
+      colour: Color(0xFF16A34A)
+    ),
+  };
+
+  ({String title, IconData icon, Color colour}) _styleFor(
+      Map<String, dynamic> event) {
+    final type = (event['eventType'] ?? '').toString();
+    return _eventStyles[type] ??
+        (
+          title: type.replaceAll('_', ' '),
+          icon: Icons.shield_outlined,
+          colour: const Color(0xFF64748B)
+        );
+  }
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  static String _formatWhen(dynamic iso) {
+    final at = DateTime.tryParse((iso ?? '').toString())?.toLocal();
+    if (at == null) return '';
+    final now = DateTime.now();
+    final hour = at.hour % 12 == 0 ? 12 : at.hour % 12;
+    final clock =
+        '$hour:${at.minute.toString().padLeft(2, '0')} ${at.hour < 12 ? 'AM' : 'PM'}';
+
+    final days = DateTime(now.year, now.month, now.day)
+        .difference(DateTime(at.year, at.month, at.day))
+        .inDays;
+    if (days == 0) return 'Today, $clock';
+    if (days == 1) return 'Yesterday, $clock';
+    return '${at.day} ${_months[at.month - 1]} ${at.year}, $clock';
   }
 
   Widget _buildIconIndicator({
@@ -305,7 +411,7 @@ class _SecurityEventsScreenState extends State<SecurityEventsScreen> {
           ),
           const SizedBox(width: 3),
           Text(
-            'VERIFIED',
+            tr('VERIFIED'),
             style: GoogleFonts.inter(
               fontSize: 8.5,
               fontWeight: FontWeight.bold,

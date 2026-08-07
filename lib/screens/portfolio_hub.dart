@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'insurance.dart';
@@ -23,7 +25,20 @@ class _PortfolioHubScreenState extends State<PortfolioHubScreen> {
   @override
   void initState() {
     super.initState();
+    // Re-read whenever the customer changes something anywhere in the app, so
+    // a payment made elsewhere is reflected in net worth and holdings here.
+    ApiService.instance.dataVersion.addListener(_onDataChanged);
     _loadPortfolioData();
+  }
+
+  @override
+  void dispose() {
+    ApiService.instance.dataVersion.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (mounted) _loadPortfolioData();
   }
 
   Future<void> _loadPortfolioData() async {
@@ -121,7 +136,7 @@ class _PortfolioHubScreenState extends State<PortfolioHubScreen> {
 
                       // Section Heading
                       Text(
-                        'Manage your wealth',
+                        tr('Manage your wealth'),
                         style: GoogleFonts.inter(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
@@ -151,7 +166,7 @@ class _PortfolioHubScreenState extends State<PortfolioHubScreen> {
                                 icon: Icons.shield_outlined,
                                 iconColor: const Color(0xFF16A34A),
                                 iconBgColor: const Color(0xFFE8F8F0),
-                                title: 'Insurance',
+                                title: tr('Insurance'),
                                 subtitle: insuranceSubtitle,
                               ),
                             ),
@@ -171,7 +186,7 @@ class _PortfolioHubScreenState extends State<PortfolioHubScreen> {
                                 icon: Icons.receipt_long_outlined,
                                 iconColor: const Color(0xFF2E75B6),
                                 iconBgColor: const Color(0xFFEEF4FA),
-                                title: 'Tax Centre',
+                                title: tr('Tax Centre'),
                                 subtitle: 'FY25-26 · save ₹46,800',
                               ),
                             ),
@@ -223,7 +238,7 @@ class _PortfolioHubScreenState extends State<PortfolioHubScreen> {
         children: [
           // Centered Title
           Text(
-            'Portfolio Hub',
+            tr('Portfolio Hub'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -292,7 +307,7 @@ class _PortfolioHubScreenState extends State<PortfolioHubScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'TOTAL PORTFOLIO VALUE',
+            tr('TOTAL PORTFOLIO VALUE'),
             style: GoogleFonts.inter(
               fontSize: 11,
               fontWeight: FontWeight.w600,
@@ -393,7 +408,7 @@ class _PortfolioHubScreenState extends State<PortfolioHubScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Investments',
+                        tr('Investments'),
                         style: GoogleFonts.inter(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -556,7 +571,7 @@ class _PortfolioHubScreenState extends State<PortfolioHubScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Loans',
+                        tr('Loans'),
                         style: GoogleFonts.inter(
                           fontSize: 15,
                           fontWeight: FontWeight.w600,
@@ -630,7 +645,7 @@ class _PortfolioHubScreenState extends State<PortfolioHubScreen> {
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    'FINIX INSIGHT',
+                    tr('FINIX INSIGHT'),
                     style: GoogleFonts.inter(
                       fontSize: 9.5,
                       fontWeight: FontWeight.w700,

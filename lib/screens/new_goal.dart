@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class NewGoalScreen extends StatefulWidget {
@@ -10,7 +12,7 @@ class NewGoalScreen extends StatefulWidget {
 }
 
 class _NewGoalScreenState extends State<NewGoalScreen> {
-  final TextEditingController _nameController = TextEditingController(text: 'Europe Trip');
+  final TextEditingController _nameController = TextEditingController(text: tr('Europe Trip'));
   final TextEditingController _amountController = TextEditingController(text: '480000');
 
   String _selectedCategory = 'Travel';
@@ -66,8 +68,8 @@ class _NewGoalScreenState extends State<NewGoalScreen> {
 
     if (title.isEmpty) {
       ScaffoldMessenger.of(context).showSnackBar(
-        const SnackBar(
-          content: Text('Please enter a goal name.'),
+        SnackBar(
+          content: Text(tr('Please enter a goal name.')),
           backgroundColor: Color(0xFFDC2626),
         ),
       );
@@ -198,7 +200,7 @@ class _NewGoalScreenState extends State<NewGoalScreen> {
 
                     // Category Title (Figma node 640:3735)
                     Text(
-                      'CATEGORY',
+                      tr('CATEGORY'),
                       style: GoogleFonts.inter(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -214,7 +216,7 @@ class _NewGoalScreenState extends State<NewGoalScreen> {
 
                     // Goal Name Title (Figma node 640:3760)
                     Text(
-                      'GOAL NAME',
+                      tr('GOAL NAME'),
                       style: GoogleFonts.inter(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -230,7 +232,7 @@ class _NewGoalScreenState extends State<NewGoalScreen> {
 
                     // Target Amount Title (Figma node 640:3763)
                     Text(
-                      'TARGET AMOUNT',
+                      tr('TARGET AMOUNT'),
                       style: GoogleFonts.inter(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -246,7 +248,7 @@ class _NewGoalScreenState extends State<NewGoalScreen> {
 
                     // By When Title (Figma node 640:3767)
                     Text(
-                      'BY WHEN',
+                      tr('BY WHEN'),
                       style: GoogleFonts.inter(
                         fontSize: 11,
                         fontWeight: FontWeight.w600,
@@ -271,7 +273,7 @@ class _NewGoalScreenState extends State<NewGoalScreen> {
                         ),
                         child: Center(
                           child: Text(
-                            'Create goal',
+                            tr('Create goal'),
                             style: GoogleFonts.inter(
                               fontSize: 16,
                               fontWeight: FontWeight.w600,
@@ -323,7 +325,7 @@ class _NewGoalScreenState extends State<NewGoalScreen> {
           ),
           // Center title
           Text(
-            'New Goal',
+            tr('New Goal'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,

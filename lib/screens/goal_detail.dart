@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'simulation.dart';
@@ -27,24 +29,22 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
   @override
   void initState() {
     super.initState();
-    final data = widget.goalData ?? {
-      'title': 'Europe Trip',
-      'subtitle': 'Jun 2027 · 8 weeks ahead',
-      'badgeText': 'ON TRACK',
-      'badgeColor': const Color(0xFF16A34A),
-      'badgeBgColor': const Color(0xFF16A34A).withOpacity(0.1),
-      'saved': 730000.0,
-      'target': 1000000.0,
-      'progress': 0.73,
-      'progressColor': const Color(0xFF16A34A),
-      'monthly': '₹15,000',
-      'rightLabel': 'Next: ',
-      'rightValue': '05 Jul',
-      'icon': Icons.airplanemode_active_rounded,
-      'iconBgColor': const Color(0xFFEEF4FA),
-      'iconColor': const Color(0xFF2E75B6),
-      'isCompleted': false,
-    };
+    // Opened without a goal this used to become a full "Europe Trip" with
+    // Rs 7,30,000 saved of Rs 10,00,000 — a goal the customer never set. An
+    // empty shell is the honest default; in practice goalData is always passed
+    // from the goals list.
+    final data = widget.goalData ??
+        <String, dynamic>{
+          'title': 'Goal',
+          'subtitle': '',
+          'badgeText': '',
+          'badgeColor': const Color(0xFF64748B),
+          'badgeBgColor': const Color(0x1A64748B),
+          'saved': 0.0,
+          'target': 0.0,
+          'monthly': '',
+          'icon': Icons.flag_outlined,
+        };
 
     _title = data['title'] as String;
     _subtitle = data['subtitle'] as String;
@@ -55,6 +55,21 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
     _badgeText = data['badgeText'] as String;
     _badgeColor = data['badgeColor'] as Color;
     _badgeBgColor = data['badgeBgColor'] as Color;
+  }
+
+  /// Indian grouping, used by the milestone labels.
+  static String _money(double rupees) {
+    final n = rupees.round().abs().toString();
+    if (n.length <= 3) return '\u20B9$n';
+    final last3 = n.substring(n.length - 3);
+    var rest = n.substring(0, n.length - 3);
+    final groups = <String>[];
+    while (rest.length > 2) {
+      groups.insert(0, rest.substring(rest.length - 2));
+      rest = rest.substring(0, rest.length - 2);
+    }
+    if (rest.isNotEmpty) groups.insert(0, rest);
+    return '\u20B9${groups.join(',')},$last3';
   }
 
   void _runWhatIfSimulation() {
@@ -115,7 +130,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
             borderRadius: BorderRadius.circular(16),
           ),
           title: Text(
-            'Add Money to Goal',
+            tr('Add Money to Goal'),
             style: GoogleFonts.inter(
               fontWeight: FontWeight.bold,
               color: const Color(0xFF0A1628),
@@ -134,7 +149,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: Text(
-                'Cancel',
+                tr('Cancel'),
                 style: GoogleFonts.inter(color: const Color(0xFF64748B)),
               ),
             ),
@@ -159,7 +174,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 );
               },
               child: Text(
-                'Deposit',
+                tr('Deposit'),
                 style: GoogleFonts.inter(fontWeight: FontWeight.bold),
               ),
             ),
@@ -260,7 +275,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           ),
           // Title
           Text(
-            'Goal',
+            tr('Goal'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -541,7 +556,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               ),
               child: Center(
                 child: Text(
-                  'Run What-If',
+                  tr('Run What-If'),
                   style: GoogleFonts.inter(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -565,7 +580,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               ),
               child: Center(
                 child: Text(
-                  'Add money',
+                  tr('Add money'),
                   style: GoogleFonts.inter(
                     fontSize: 13,
                     fontWeight: FontWeight.w600,
@@ -611,7 +626,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
                 ),
               ),
               Text(
-                'Full history →',
+                tr('Full history →'),
                 style: GoogleFonts.inter(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -622,73 +637,27 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           ),
           const SizedBox(height: 20),
 
-          // Custom Bar Chart
-          SizedBox(
-            height: 90,
-            child: Row(
-              mainAxisAlignment: MainAxisAlignment.spaceBetween,
-              crossAxisAlignment: CrossAxisAlignment.end,
-              children: [
-                _buildBar('JAN', 52, isGold: false, amount: '₹15,000'),
-                _buildBar('FEB', 48, isGold: false, amount: '₹15,000'),
-                _buildBar('MAR', 65, isGold: true, amount: '₹20,000 (Bonus)'),
-                _buildBar('APR', 50, isGold: false, amount: '₹15,000'),
-                _buildBar('MAY', 56, isGold: false, amount: '₹15,000'),
-                _buildBar('JUN', 60, isGold: false, amount: '₹15,000'),
-              ],
-            ),
-          ),
-        ],
-      ),
-    );
-  }
-
-  Widget _buildBar(String month, double height, {required bool isGold, required String amount}) {
-    final barGradient = isGold
-        ? const LinearGradient(
-            colors: [Color(0xFFC8A951), Color(0xFFD8BE73)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          )
-        : const LinearGradient(
-            colors: [Color(0xFF2E75B6), Color(0xFF5A96CF)],
-            begin: Alignment.topCenter,
-            end: Alignment.bottomCenter,
-          );
-
-    return Tooltip(
-      message: '$month contribution:\n$amount',
-      triggerMode: TooltipTriggerMode.tap,
-      child: Column(
-        mainAxisAlignment: MainAxisAlignment.end,
-        children: [
-          Container(
-            width: 42.6,
-            height: height,
-            decoration: BoxDecoration(
-              gradient: barGradient,
-              borderRadius: const BorderRadius.only(
-                topLeft: Radius.circular(6),
-                topRight: Radius.circular(6),
-                bottomLeft: Radius.circular(2),
-                bottomRight: Radius.circular(2),
-              ),
-            ),
-          ),
-          const SizedBox(height: 6),
+          // A six-bar JAN-JUN chart at a flat Rs 15,000 (with a Rs 20,000
+          // "Bonus" in March) used to sit here. /v1/goals/{id}/history returns
+          // lifecycle events, not per-month contribution amounts, so there is
+          // nothing to plot; inventing the bars would misreport how much the
+          // customer has been putting aside.
           Text(
-            month,
+            _monthly.isNotEmpty
+                ? 'Contributing $_monthly a month. Per-month history is not '
+                    'available yet.'
+                : 'Per-month contribution history is not available yet.',
             style: GoogleFonts.inter(
-              fontSize: 9,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF94A3B8),
-              letterSpacing: 0.54,
+              fontSize: 12,
+              height: 1.45,
+              color: const Color(0xFF64748B),
             ),
           ),
         ],
       ),
     );
   }
+
 
   Widget _buildLinkedSourcesSection() {
     return Column(
@@ -698,7 +667,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Linked sources',
+              tr('Linked sources'),
               style: GoogleFonts.inter(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -706,7 +675,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
               ),
             ),
             Text(
-              'Manage →',
+              tr('Manage →'),
               style: GoogleFonts.inter(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -717,22 +686,25 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         ),
         const SizedBox(height: 10),
 
-        // HDFC Bluechip SIP Card (Figma node 640:4622)
-        _buildSourceCard(
-          icon: Icons.trending_up_rounded,
-          title: 'HDFC Bluechip SIP',
-          subtitle: 'Every 5th · Auto · Active',
-          amount: '₹10,000',
-        ),
-        const SizedBox(height: 8),
-
-        // SGB Auto-buy Card (Figma node 640:4629)
-        _buildSourceCard(
-          icon: Icons.card_membership_rounded,
-          title: 'SGB Auto-buy',
-          subtitle: 'Quarterly · Manual · Active',
-          amount: '₹5,000',
-        ),
+        // Two cards, "HDFC Bluechip SIP Rs 10,000" and "SGB Auto-buy
+        // Rs 5,000", were hardcoded here. No endpoint exposes the mandates
+        // funding a goal, so the only figure that can be shown is the monthly
+        // contribution on the goal record itself.
+        if (_monthly.isNotEmpty)
+          _buildSourceCard(
+            icon: Icons.autorenew_rounded,
+            title: 'Monthly contribution',
+            subtitle: 'From your goal plan',
+            amount: _monthly,
+          )
+        else
+          Text(
+            tr('No contribution plan set for this goal.'),
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              color: const Color(0xFF64748B),
+            ),
+          ),
       ],
     );
   }
@@ -815,7 +787,7 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Milestones',
+          tr('Milestones'),
           style: GoogleFonts.inter(
             fontSize: 13,
             fontWeight: FontWeight.w600,
@@ -824,40 +796,25 @@ class _GoalDetailScreenState extends State<GoalDetailScreen> {
         ),
         const SizedBox(height: 10),
 
-        // Milestone 1 (Done)
-        _buildMilestoneCard(
-          isDone: true,
-          title: 'Crossed ₹5,00,000 · Halfway there',
-          subtitle: 'Achieved 18 Feb 2026',
-          icon: Icons.shield_rounded,
-        ),
-        const SizedBox(height: 8),
-
-        // Milestone 2 (Done)
-        _buildMilestoneCard(
-          isDone: true,
-          title: 'Reached 70% · ₹7,00,000',
-          subtitle: 'Achieved 04 Jun 2026',
-          icon: Icons.shield_rounded,
-        ),
-        const SizedBox(height: 8),
-
-        // Milestone 3 (Upcoming)
-        _buildMilestoneCard(
-          isDone: false,
-          title: 'Cross ₹9,00,000',
-          subtitle: 'Est. Feb 2027',
-          icon: Icons.circle_outlined,
-        ),
-        const SizedBox(height: 8),
-
-        // Milestone 4 (Upcoming)
-        _buildMilestoneCard(
-          isDone: false,
-          title: 'Goal completion',
-          subtitle: 'Est. Apr 2027 · 2 months early',
-          icon: Icons.calendar_today_rounded,
-        ),
+        // Milestones are percentage marks against this goal's own target. They
+        // were fixed at Rs 5,00,000 / Rs 7,00,000 / Rs 9,00,000 with invented
+        // achievement dates, which only ever matched a Rs 10,00,000 goal.
+        for (final fraction in const [0.25, 0.5, 0.75, 1.0]) ...[
+          _buildMilestoneCard(
+            isDone: _targetAmount > 0 && _savedAmount >= _targetAmount * fraction,
+            title: fraction == 1.0
+                ? 'Goal completion \u00B7 ${_money(_targetAmount)}'
+                : '${(fraction * 100).round()}% \u00B7 ${_money(_targetAmount * fraction)}',
+            subtitle: _targetAmount > 0 &&
+                    _savedAmount >= _targetAmount * fraction
+                ? 'Reached'
+                : '${_money((_targetAmount * fraction) - _savedAmount)} to go',
+            icon: _targetAmount > 0 && _savedAmount >= _targetAmount * fraction
+                ? Icons.shield_rounded
+                : Icons.circle_outlined,
+          ),
+          const SizedBox(height: 8),
+        ],
       ],
     );
   }

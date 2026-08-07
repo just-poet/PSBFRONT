@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'search_ifsc.dart';
@@ -6,6 +8,7 @@ import 'pin_screen.dart';
 import '../main.dart';
 import 'payment_success.dart';
 import '../services/api_service.dart';
+import 'risk_warning.dart';
 
 class BankTransferScreen extends StatelessWidget {
   const BankTransferScreen({super.key});
@@ -101,7 +104,7 @@ class _AppBar extends StatelessWidget {
           ),
           // Title
           Text(
-            'Bank transfer',
+            tr('Bank transfer'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -184,7 +187,7 @@ class _SecureLedgerCard extends StatelessWidget {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Secure Ledger Transfer',
+                        tr('Secure Ledger Transfer'),
                         style: GoogleFonts.inter(
                           color: Colors.white,
                           fontSize: 16,
@@ -201,7 +204,7 @@ class _SecureLedgerCard extends StatelessWidget {
                           ),
                           const SizedBox(width: 6),
                           Text(
-                            'Verified by FINIX Protocol',
+                            tr('Verified by FINIX Protocol'),
                             style: GoogleFonts.inter(
                               color: const Color(0xE6FFFFFF), // 90% opacity white
                               fontSize: 14,
@@ -295,7 +298,7 @@ class _TransferFormState extends State<_TransferForm> {
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(
           content: Text(
-            'Please enter a valid payment amount.',
+            tr('Please enter a valid payment amount.'),
             style: GoogleFonts.inter(),
           ),
           backgroundColor: const Color(0xFFDC2626),
@@ -314,7 +317,10 @@ class _TransferFormState extends State<_TransferForm> {
             title: 'Enter your 6-digit PIN',
             subtitle: 'Account ••• $lastFour · IFSC $ifsc',
             amount: amount,
-            onSuccess: () async {
+            // Runs while "Authorising…" is on screen, before any success
+            // animation — so a flagged payment shows its warning first, rather
+            // than after the customer has watched it succeed.
+            onAuthorise: () async {
               try {
                 final int amountPaise = (amount * 100).toInt();
                 final initResult = await ApiService.instance.initiateTransaction(
@@ -324,24 +330,64 @@ class _TransferFormState extends State<_TransferForm> {
                 );
 
                 final String txnId = initResult['transactionId'] ?? 'txn_000';
-                final bool requiresOverride = initResult['stepUpRequired'] ?? false;
+                final String status = (initResult['status'] ?? '').toString();
+                final bool requiresOverride =
+                    initResult['stepUpRequired'] == true ||
+                        status == 'warning_ack_required' ||
+                        status == 'blocked';
 
-                if (requiresOverride) {
-                  await ApiService.instance.overrideTransaction(
-                    transactionId: txnId,
-                    otp: '123456',
-                    biometricOk: true,
-                  );
-                }
-              } catch (_) {}
+                if (!requiresOverride) return true;
+                if (!context.mounted) return false;
 
+                final health = await ApiService.instance.getHealthScore();
+                if (!context.mounted) return false;
+
+                final decision = await Navigator.of(context).push<RiskDecision>(
+                  SmoothPageRoute(
+                    settings: const RouteSettings(name: '/risk_warning'),
+                    builder: (_) => MobileDeviceFrame(
+                      child: RiskWarningScreen(
+                        transactionId: txnId,
+                        amountPaise: amountPaise,
+                        recipient: 'Account ••• $lastFour',
+                        riskScore:
+                            (initResult['riskScore'] as num?)?.toDouble() ?? 0,
+                        riskLevel: (initResult['riskLevel'] ?? '').toString(),
+                        reason: (initResult['xaiReason'] ?? '').toString(),
+                        blocked: status == 'blocked',
+                        healthScore:
+                            (health['score300To900'] as num?)?.toInt(),
+                        requireOtp: initResult['requireOtp'] != false,
+                        requireBiometric:
+                            initResult['requireBiometric'] != false,
+                      ),
+                    ),
+                  ),
+                );
+
+                if (decision == RiskDecision.proceeded) return true;
+
+                if (!context.mounted) return false;
+                Navigator.pop(context); // close the PIN screen
+                ScaffoldMessenger.of(context).showSnackBar(
+                  SnackBar(
+                    content: Text(decision == RiskDecision.blocked
+                        ? tr('Payment blocked by the risk engine.')
+                        : tr('Payment cancelled. Nothing was debited.')),
+                  ),
+                );
+                return false;
+              } catch (_) {
+                // Offline: ApiService returns its mock result, so the demo
+                // keeps moving and the receipt still shows.
+                return true;
+              }
+            },
+            onSuccess: () {
               if (!context.mounted) return;
 
-              // Pop PinScreen
-              Navigator.pop(context);
-              // Pop BankTransferScreen
-              Navigator.pop(context);
-              // Navigate to PaymentSuccessScreen
+              Navigator.pop(context); // PinScreen
+              Navigator.pop(context); // BankTransferScreen
               Navigator.push(
                 context,
                 SmoothPageRoute(
@@ -352,7 +398,8 @@ class _TransferFormState extends State<_TransferForm> {
                       amount: amount,
                       fromAccount: 'HDFC ••• 8472',
                       method: 'Bank Transfer',
-                      referenceId: 'HDFC${(100000 + (amount * 99).toInt()).toString()}XQ${(100 + (amount % 899).toInt()).toString()}',
+                      referenceId:
+                          'HDFC${(100000 + (amount * 99).toInt())}XQ${(100 + (amount % 899).toInt())}',
                     ),
                   ),
                 ),
@@ -371,7 +418,7 @@ class _TransferFormState extends State<_TransferForm> {
       children: [
         // Account Number Label
         Text(
-          'BANK ACCOUNT NUMBER',
+          tr('BANK ACCOUNT NUMBER'),
           style: GoogleFonts.inter(
             fontSize: 11,
             fontWeight: FontWeight.w600,
@@ -423,7 +470,7 @@ class _TransferFormState extends State<_TransferForm> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'IFSC CODE',
+              tr('IFSC CODE'),
               style: GoogleFonts.inter(
                 fontSize: 11,
                 fontWeight: FontWeight.w600,
@@ -448,7 +495,7 @@ class _TransferFormState extends State<_TransferForm> {
                 }
               },
               child: Text(
-                'Search for IFSC',
+                tr('Search for IFSC'),
                 style: GoogleFonts.inter(
                   fontSize: 14,
                   fontWeight: FontWeight.w500,
@@ -540,7 +587,7 @@ class _TransferFormState extends State<_TransferForm> {
             ),
             child: Center(
               child: Text(
-                'Continue',
+                tr('Continue'),
                 style: GoogleFonts.inter(
                   color: Colors.white,
                   fontSize: 16,
@@ -567,7 +614,7 @@ class _RecentTransfersSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Recent transfers',
+          tr('Recent transfers'),
           style: GoogleFonts.inter(
             fontSize: 16,
             fontWeight: FontWeight.w600,
@@ -604,7 +651,7 @@ class _RecentTransfersSection extends StatelessWidget {
               ),
               const SizedBox(height: 16),
               Text(
-                'No recent transfers yet',
+                tr('No recent transfers yet'),
                 style: GoogleFonts.inter(
                   fontSize: 16,
                   fontWeight: FontWeight.w600,

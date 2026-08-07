@@ -1,5 +1,9 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+import '../services/api_service.dart';
 
 class TransactionHistoryScreen extends StatefulWidget {
   const TransactionHistoryScreen({super.key});
@@ -12,117 +16,114 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _searchQuery = '';
 
-  // All transaction model items
-  final List<Map<String, dynamic>> _allTransactions = [
-    {
-      'title': 'Rohan Sharma',
-      'dateGroup': 'Today',
-      'subtitle': '2:14 PM · UPI',
-      'amount': '−₹2,400',
-      'type': 'debit',
-      'initials': 'RS',
+  // Populated from /v1/transactions/history. This was a hardcoded list, so
+  // every customer saw the same "Rohan Sharma / Starbucks / Salary Credit"
+  // history regardless of who signed in.
+  List<Map<String, dynamic>> _allTransactions = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    // Re-read whenever the customer changes something anywhere in the app.
+    // Without this the screen kept whatever it loaded on first build, so a
+    // payment made elsewhere left stale figures here.
+    ApiService.instance.dataVersion.addListener(_onDataChanged);
+    _load();
+  }
+
+  void _onDataChanged() {
+    if (mounted) _load();
+  }
+
+  Future<void> _load() async {
+    final txns = await ApiService.instance.getTransactionHistory();
+    if (!mounted) return;
+    setState(() {
+      _allTransactions = txns.map(_toRow).toList();
+      _loading = false;
+    });
+  }
+
+  /// Maps an API transaction onto the row shape this screen renders.
+  Map<String, dynamic> _toRow(Map<String, dynamic> t) {
+    final isCredit = (t['type'] ?? 'debit') == 'credit';
+    final paise = (t['amountPaise'] as num?)?.toInt() ?? 0;
+    final when = DateTime.tryParse((t['timestamp'] ?? '').toString())?.toLocal();
+    final title = (t['merchantName'] ?? t['recipient'] ?? 'Transaction').toString();
+
+    return {
+      'title': title,
+      'dateGroup': _groupFor(when),
+      'subtitle': '${_clockTime(when)} · ${_channel(t)}',
+      'amount': '${isCredit ? '+' : '−'}₹${_money(paise / 100)}',
+      'type': isCredit ? 'credit' : 'debit',
+      'initials': _initials(title),
       'icon': null,
-    },
-    {
-      'title': 'HDFC Bluechip SIP',
-      'dateGroup': 'Today',
-      'subtitle': '10:00 AM · Auto SIP',
-      'amount': '−₹5,000',
-      'type': 'debit',
-      'initials': null,
-      'icon': Icons.attach_money_rounded,
-      'iconBg': const Color(0xFF0B2447),
-      'iconColor': Colors.white,
-    },
-    {
-      'title': 'Starbucks',
-      'dateGroup': 'Today',
-      'subtitle': '9:30 AM · Credit Card',
-      'amount': '−₹450',
-      'type': 'debit',
-      'initials': null,
-      'icon': Icons.local_cafe_rounded,
-    },
-    {
-      'title': 'Salary Credit',
-      'dateGroup': 'Yesterday',
-      'subtitle': '12:01 AM · NEFT',
-      'amount': '+₹85,000',
-      'type': 'credit',
-      'initials': null,
-      'icon': Icons.arrow_upward_rounded,
-      'iconBg': const Color(0xFFDCFCE7),
-      'iconColor': const Color(0xFF16A34A),
-    },
-    {
-      'title': 'Amazon.in',
-      'dateGroup': 'Yesterday',
-      'subtitle': '11:45 AM · Credit Card',
-      'amount': '−₹1,250',
-      'type': 'debit',
-      'initials': null,
-      'icon': Icons.shopping_cart_rounded,
-    },
-    {
-      'title': 'Swiggy',
-      'dateGroup': 'Yesterday',
-      'subtitle': '8:15 PM · UPI',
-      'amount': '−₹620',
-      'type': 'debit',
-      'initials': null,
-      'icon': Icons.restaurant_rounded,
-    },
-    {
-      'title': 'BYJU’s stock',
-      'dateGroup': 'Yesterday',
-      'subtitle': '6:30 PM · UPI',
-      'amount': '−₹340',
-      'type': 'stock',
-      'initials': null,
-      'icon': Icons.trending_down_rounded,
-      'iconBg': const Color(0xFFFFDAD6),
-      'iconColor': const Color(0xFFDC2626),
-    },
-    {
-      'title': 'Netflix',
-      'dateGroup': 'Last Week',
-      'subtitle': 'May 14 · Credit Card',
-      'amount': '−₹649',
-      'type': 'debit',
-      'initials': 'NF',
-      'icon': null,
-    },
-    {
-      'title': 'Jio Recharge',
-      'dateGroup': 'Last Week',
-      'subtitle': 'May 12 · UPI',
-      'amount': '−₹749',
-      'type': 'debit',
-      'initials': null,
-      'icon': Icons.phone_android_rounded,
-    },
-    {
-      'title': 'ATM Withdrawal',
-      'dateGroup': 'Last Week',
-      'subtitle': 'May 10 · Debit Card',
-      'amount': '−₹10,000',
-      'type': 'debit',
-      'initials': null,
-      'icon': Icons.local_atm_rounded,
-    },
-    {
-      'title': 'D-Mart',
-      'dateGroup': 'Last Week',
-      'subtitle': 'May 09 · Credit Card',
-      'amount': '−₹4,200',
-      'type': 'debit',
-      'initials': null,
-      'icon': Icons.shopping_bag_outlined,
-    },
-  ];
+      if (isCredit) 'iconBg': const Color(0xFFDCFCE7),
+      if (isCredit) 'iconColor': const Color(0xFF16A34A),
+    };
+  }
+
+  /// The screen renders three buckets; anything older falls into "Last Week"
+  /// so it stays visible rather than being silently dropped.
+  static String _groupFor(DateTime? when) {
+    if (when == null) return 'Last Week';
+    final now = DateTime.now();
+    final today = DateTime(now.year, now.month, now.day);
+    final day = DateTime(when.year, when.month, when.day);
+    final diff = today.difference(day).inDays;
+    if (diff <= 0) return 'Today';
+    if (diff == 1) return 'Yesterday';
+    return 'Last Week';
+  }
+
+  static String _clockTime(DateTime? when) {
+    if (when == null) return '--';
+    final h24 = when.hour;
+    final h = h24 % 12 == 0 ? 12 : h24 % 12;
+    final m = when.minute.toString().padLeft(2, '0');
+    return '$h:$m ${h24 < 12 ? 'AM' : 'PM'}';
+  }
+
+  static String _channel(Map<String, dynamic> t) {
+    final c = (t['channel'] ?? '').toString();
+    if (c.isEmpty) return 'Transfer';
+    return c.toUpperCase() == c ? c : c.toUpperCase();
+  }
+
+  static String _initials(String name) {
+    final parts = name
+        .replaceAll(RegExp(r'[@._]'), ' ')
+        .split(RegExp(r'\s+'))
+        .where((p) => p.isNotEmpty)
+        .toList();
+    if (parts.isEmpty) return '?';
+    if (parts.length == 1) {
+      final w = parts.first;
+      return (w.length >= 2 ? w.substring(0, 2) : w).toUpperCase();
+    }
+    return (parts.first[0] + parts[1][0]).toUpperCase();
+  }
+
+  /// Indian digit grouping.
+  static String _money(double rupees) {
+    final n = rupees.round().abs().toString();
+    if (n.length <= 3) return n;
+    final last3 = n.substring(n.length - 3);
+    var rest = n.substring(0, n.length - 3);
+    final groups = <String>[];
+    while (rest.length > 2) {
+      groups.insert(0, rest.substring(rest.length - 2));
+      rest = rest.substring(0, rest.length - 2);
+    }
+    if (rest.isNotEmpty) groups.insert(0, rest);
+    return '${groups.join(',')},$last3';
+  }
 
   @override
   void dispose() {
+    ApiService.instance.dataVersion.removeListener(_onDataChanged);
     _searchController.dispose();
     super.dispose();
   }
@@ -156,7 +157,9 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
 
             // 4. Scrollable List Grouped
             Expanded(
-              child: filtered.isEmpty
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : filtered.isEmpty
                   ? _buildEmptyState()
                   : ListView(
                       padding: const EdgeInsets.symmetric(horizontal: 16.0, vertical: 8.0),
@@ -213,7 +216,7 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
         children: [
           // Centered Title
           Text(
-            'Transaction History',
+            tr('Transaction History'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -376,8 +379,14 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
                   child: Column(
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
+                      // Recipients can be long -- "Account 4521 (IFSC
+                      // SBIN0000000)" -- and without a line limit the text
+                      // overflowed its box and painted over the amount on the
+                      // right. Ellipsis keeps each row to two tidy lines.
                       Text(
                         tx['title'],
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(
                           fontSize: 16,
                           fontWeight: FontWeight.w500,
@@ -387,6 +396,8 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
                       const SizedBox(height: 2),
                       Text(
                         tx['subtitle'],
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
                         style: GoogleFonts.inter(
                           fontSize: 14,
                           fontWeight: FontWeight.w400,
@@ -400,13 +411,24 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
             ),
           ),
 
-          // Right Side: Amount
-          Text(
-            tx['amount'],
-            style: GoogleFonts.inter(
-              fontSize: 16,
-              fontWeight: FontWeight.w600,
-              color: amountColor,
+          const SizedBox(width: 10),
+
+          // Right Side: Amount. Scales down rather than wrapping, so a large
+          // figure stays on one line and never collides with the description.
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 130),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                tx['amount'],
+                maxLines: 1,
+                style: GoogleFonts.inter(
+                  fontSize: 16,
+                  fontWeight: FontWeight.w600,
+                  color: amountColor,
+                ),
+              ),
             ),
           ),
         ],
@@ -429,7 +451,7 @@ class _TransactionHistoryScreenState extends State<TransactionHistoryScreen> {
             ),
             const SizedBox(height: 16),
             Text(
-              'No Transactions Found',
+              tr('No Transactions Found'),
               style: GoogleFonts.inter(
                 fontSize: 18,
                 fontWeight: FontWeight.w600,

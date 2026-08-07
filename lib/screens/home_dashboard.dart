@@ -1,6 +1,9 @@
+import 'dart:ui';
 import 'dart:math' as math;
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'linked_accounts.dart';
 import 'scan_qr.dart';
@@ -16,6 +19,7 @@ import 'portfolio_hub.dart';
 import 'health_score.dart';
 import '../main.dart';
 import '../services/api_service.dart';
+import '../services/health_band.dart';
 
 class HomeDashboardScreen extends StatefulWidget {
   const HomeDashboardScreen({super.key});
@@ -24,10 +28,14 @@ class HomeDashboardScreen extends StatefulWidget {
   State<HomeDashboardScreen> createState() => _HomeDashboardScreenState();
 }
 
-class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
+class _HomeDashboardScreenState extends State<HomeDashboardScreen>
+    with WidgetsBindingObserver {
   bool _isLoading = false;
   Map<String, dynamic> _netWorth = {'netWorth': 248765000};
-  Map<String, dynamic> _healthScore = {'score300To900': 782, 'band': 'Excellent'};
+  // Empty until loaded. This used to default to 782/'Excellent', so every
+  // customer saw a green healthy score for the first frame — and kept it if
+  // the request failed.
+  Map<String, dynamic> _healthScore = const {};
   List<Map<String, dynamic>> _accounts = [];
   List<Map<String, dynamic>> _transactions = [];
   // Backing data for the cards that used to be hardcoded.
@@ -37,9 +45,22 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
   Map<String, dynamic> _insight = {};
   bool _accountFrozen = false;
 
+  /// Whether balances on the net-worth card are blurred out. Session-only by
+  /// design: it protects against someone glancing over your shoulder, so it
+  /// should reset when the app is reopened rather than silently persisting.
+  bool _amountsHidden = false;
+  List<Map<String, dynamic>> _loans = [];
+  Map<String, dynamic> _insurance = {};
+  List<Map<String, dynamic>> _deductions = [];
+
   @override
   void initState() {
     super.initState();
+    // Re-read whenever the customer changes something anywhere in the app.
+    // Without this the screen kept whatever it loaded on first build, so a
+    // payment made elsewhere left stale figures here.
+    ApiService.instance.dataVersion.addListener(_onDataChanged);
+    WidgetsBinding.instance.addObserver(this);
     _loadDashboardData();
     // Automatically re-load when connection state changes
     ApiService.instance.isConnected.addListener(_onConnectionStatusChanged);
@@ -47,7 +68,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
 
   @override
   void dispose() {
+    ApiService.instance.dataVersion.removeListener(_onDataChanged);
     ApiService.instance.isConnected.removeListener(_onConnectionStatusChanged);
+    WidgetsBinding.instance.removeObserver(this);
     super.dispose();
   }
 
@@ -55,6 +78,19 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
     if (mounted) {
       _loadDashboardData();
     }
+  }
+
+  /// Re-reads on resume so money that arrived while the app was away — a
+  /// transfer from another customer, say — shows up without a manual refresh.
+  @override
+  void didChangeAppLifecycleState(AppLifecycleState state) {
+    if (state == AppLifecycleState.resumed) {
+      _loadDashboardData();
+    }
+  }
+
+  void _onDataChanged() {
+    if (mounted) _loadDashboardData();
   }
 
   Future<void> _loadDashboardData() async {
@@ -78,6 +114,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
         ApiService.instance.getMarketSnapshot(),
         ApiService.instance.getInsightsFeed(),
         ApiService.instance.getSecurityHealth(),
+        // Loans and insurance are the customer's real recurring commitments,
+        // which the "Upcoming" card used to invent (HDFC SIP, Airtel Postpaid,
+        // LIC Premium). Deductions drive the 80C card.
+        ApiService.instance.getLoans(),
+        ApiService.instance.getInsurance(),
+        ApiService.instance.getTaxDeductions(),
       ]);
 
       if (mounted) {
@@ -93,6 +135,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
           // The feed is priority-ordered; show the first entry.
           _insight = feed.isNotEmpty ? feed.first : {};
           _accountFrozen = (results[8] as Map)['is_frozen'] == true;
+          // Drives the app-wide lock, so a freeze applied on another device
+          // (or before this session) locks the app as soon as we learn of it.
+          ApiService.instance.accountFrozen.value = _accountFrozen;
+          _loans = (results[9] as List).cast<Map<String, dynamic>>();
+          _insurance = results[10] as Map<String, dynamic>;
+          _deductions = (results[11] as List).cast<Map<String, dynamic>>();
           _isLoading = false;
         });
       }
@@ -132,7 +180,12 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                       const SizedBox(height: 16),
                       
                       // 3. Net Worth Card
-                      _NetWorthCard(data: _netWorth),
+                      _NetWorthCard(
+                        data: _netWorth,
+                        hidden: _amountsHidden,
+                        onToggleHidden: () =>
+                            setState(() => _amountsHidden = !_amountsHidden),
+                      ),
                       
                       const SizedBox(height: 12),
                       
@@ -151,6 +204,9 @@ class _HomeDashboardScreenState extends State<HomeDashboardScreen> {
                         transactions: _transactions,
                         investments: _investments,
                         goals: _goals,
+                        loans: _loans,
+                        insurance: _insurance,
+                        deductions: _deductions,
                       ),
                       
                       const SizedBox(height: 20),
@@ -323,6 +379,36 @@ class _TopProfileBar extends StatelessWidget {
                 },
               ),
               const SizedBox(width: 8),
+              // Settings. The only route in before was tapping the name, which
+              // is not discoverable as "settings".
+              GestureDetector(
+                onTap: () {
+                  Navigator.push(
+                    context,
+                    SmoothPageRoute(
+                      settings: const RouteSettings(name: '/settings'),
+                      builder: (context) => const MobileDeviceFrame(
+                        child: ProfileScreen(),
+                      ),
+                    ),
+                  );
+                },
+                child: Container(
+                  width: 38,
+                  height: 38,
+                  decoration: BoxDecoration(
+                    color: Colors.white,
+                    borderRadius: BorderRadius.circular(12),
+                    border: Border.all(color: const Color(0xFFE2E8F0)),
+                  ),
+                  child: const Icon(
+                    Icons.tune_rounded,
+                    color: Color(0xFF475569),
+                    size: 20,
+                  ),
+                ),
+              ),
+              const SizedBox(width: 8),
               // Notification Button
               GestureDetector(
                 onTap: () {
@@ -381,7 +467,25 @@ class _TopProfileBar extends StatelessWidget {
 // ---------------------------------------------------------------------
 class _NetWorthCard extends StatelessWidget {
   final Map<String, dynamic> data;
-  const _NetWorthCard({required this.data});
+
+  /// When true the amount and the weekly delta are blurred out.
+  final bool hidden;
+  final VoidCallback onToggleHidden;
+
+  const _NetWorthCard({
+    required this.data,
+    required this.hidden,
+    required this.onToggleHidden,
+  });
+
+  /// Weekly change straight from /v1/dashboard. Can be negative, which the
+  /// hardcoded badge could never show.
+  int get _weekDeltaPaise =>
+      ((data['weekDeltaPaise'] as num?) ?? 0).toInt();
+
+  Color get _deltaColour => _weekDeltaPaise < 0
+      ? const Color(0xFFF87171)
+      : const Color(0xFF4ADE80);
 
   String _formatPaise(int paise) {
     final double rupees = paise / 100;
@@ -448,7 +552,7 @@ class _NetWorthCard extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'TOTAL NET WORTH',
+                      tr('TOTAL NET WORTH'),
                       style: GoogleFonts.inter(
                         color: Colors.white.withOpacity(0.75),
                         fontSize: 11,
@@ -456,21 +560,29 @@ class _NetWorthCard extends StatelessWidget {
                         letterSpacing: 1.32,
                       ),
                     ),
-                    Container(
-                      width: 28,
-                      height: 28,
-                      decoration: BoxDecoration(
-                        color: Colors.white.withOpacity(0.08),
-                        borderRadius: BorderRadius.circular(8),
-                        border: Border.all(
-                          color: Colors.white.withOpacity(0.1),
-                          width: 1,
+                    // Hides the balance from anyone glancing over the
+                    // customer's shoulder. The icon was decorative before.
+                    GestureDetector(
+                      onTap: onToggleHidden,
+                      behavior: HitTestBehavior.opaque,
+                      child: Container(
+                        width: 28,
+                        height: 28,
+                        decoration: BoxDecoration(
+                          color: Colors.white.withOpacity(0.08),
+                          borderRadius: BorderRadius.circular(8),
+                          border: Border.all(
+                            color: Colors.white.withOpacity(0.1),
+                            width: 1,
+                          ),
                         ),
-                      ),
-                      child: const Icon(
-                        Icons.visibility_outlined,
-                        color: Colors.white,
-                        size: 14,
+                        child: Icon(
+                          hidden
+                              ? Icons.visibility_off_outlined
+                              : Icons.visibility_outlined,
+                          color: Colors.white,
+                          size: 14,
+                        ),
                       ),
                     ),
                   ],
@@ -492,12 +604,15 @@ class _NetWorthCard extends StatelessWidget {
                       child: FittedBox(
                         fit: BoxFit.scaleDown,
                         alignment: Alignment.centerLeft,
-                        child: Text(
-                          formattedNetWorth,
-                          style: GoogleFonts.fraunces(
-                            color: Colors.white,
-                            fontSize: 36,
-                            fontWeight: FontWeight.w400,
+                        child: _Blurred(
+                          hidden: hidden,
+                          child: Text(
+                            formattedNetWorth,
+                            style: GoogleFonts.fraunces(
+                              color: Colors.white,
+                              fontSize: 36,
+                              fontWeight: FontWeight.w400,
+                            ),
                           ),
                         ),
                       ),
@@ -512,27 +627,32 @@ class _NetWorthCard extends StatelessWidget {
                       child: Container(
                         padding: const EdgeInsets.symmetric(horizontal: 10, vertical: 5),
                         decoration: BoxDecoration(
-                          color: const Color(0xFF4ADE80).withOpacity(0.18),
+                          color: _deltaColour.withOpacity(0.18),
                           borderRadius: BorderRadius.circular(999),
                         ),
                         child: Row(
                           mainAxisSize: MainAxisSize.min,
                           children: [
-                            const Icon(
-                              Icons.arrow_upward,
-                              color: Color(0xFF4ADE80),
+                            Icon(
+                              _weekDeltaPaise < 0
+                                  ? Icons.arrow_downward
+                                  : Icons.arrow_upward,
+                              color: _deltaColour,
                               size: 12,
                             ),
                             const SizedBox(width: 4),
                             Flexible(
-                              child: Text(
-                                '₹12,400 this week',
-                                style: GoogleFonts.inter(
-                                  color: const Color(0xFF4ADE80),
-                                  fontSize: 11,
-                                  fontWeight: FontWeight.w600,
+                              child: _Blurred(
+                                hidden: hidden,
+                                child: Text(
+                                  '₹${_formatPaise(_weekDeltaPaise.abs())} this week',
+                                  style: GoogleFonts.inter(
+                                    color: _deltaColour,
+                                    fontSize: 11,
+                                    fontWeight: FontWeight.w600,
+                                  ),
+                                  overflow: TextOverflow.ellipsis,
                                 ),
-                                overflow: TextOverflow.ellipsis,
                               ),
                             )
                           ],
@@ -554,7 +674,7 @@ class _NetWorthCard extends StatelessWidget {
                       child: Row(
                         children: [
                           Text(
-                            'View Portfolio',
+                            tr('View Portfolio'),
                             style: GoogleFonts.inter(
                               color: Colors.white,
                               fontSize: 12,
@@ -591,8 +711,11 @@ class _AccountsAndScorePair extends StatelessWidget {
 
   @override
   Widget build(BuildContext context) {
-    final int score = healthScore['score300To900'] ?? 782;
-    final String band = healthScore['band'] ?? 'Excellent';
+    final int? score = (healthScore['score300To900'] as num?)?.toInt();
+    // Colour, icon and label all come from the band, so a 610 cannot render as
+    // a green "Excellent" shield.
+    final HealthBand healthBand =
+        HealthBand.fromApi(healthScore['band'] as String?, score);
     
     // Group unique banks
     final uniqueBanks = accounts.isNotEmpty 
@@ -645,7 +768,7 @@ class _AccountsAndScorePair extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.center,
                       children: [
                         Text(
-                          'All Accounts',
+                          tr('All Accounts'),
                           style: GoogleFonts.inter(
                             fontSize: 11,
                             fontWeight: FontWeight.w500,
@@ -699,12 +822,12 @@ class _AccountsAndScorePair extends StatelessWidget {
                   width: 36,
                   height: 36,
                   decoration: BoxDecoration(
-                    color: const Color(0xFF16A34A).withOpacity(0.1),
+                    color: healthBand.colour.withOpacity(0.1),
                     borderRadius: BorderRadius.circular(10),
                   ),
-                  child: const Icon(
-                    Icons.verified_user_outlined,
-                    color: Color(0xFF16A34A),
+                  child: Icon(
+                    healthBand.icon,
+                    color: healthBand.colour,
                     size: 18,
                   ),
                 ),
@@ -715,7 +838,7 @@ class _AccountsAndScorePair extends StatelessWidget {
                     mainAxisAlignment: MainAxisAlignment.center,
                     children: [
                       Text(
-                        'Health Score',
+                        tr('Health Score'),
                         style: GoogleFonts.inter(
                           fontSize: 11,
                           fontWeight: FontWeight.w500,
@@ -732,7 +855,7 @@ class _AccountsAndScorePair extends StatelessWidget {
                           textBaseline: TextBaseline.alphabetic,
                           children: [
                             Text(
-                              score.toString(),
+                              score?.toString() ?? '—',
                               style: GoogleFonts.fraunces(
                                 fontSize: 18,
                                 fontWeight: FontWeight.w500,
@@ -740,11 +863,11 @@ class _AccountsAndScorePair extends StatelessWidget {
                               ),
                             ),
                             Text(
-                              ' · $band',
+                              ' · ${tr(healthBand.shortLabel)}',
                               style: GoogleFonts.inter(
                                 fontSize: 12,
                                 fontWeight: FontWeight.w600,
-                                color: const Color(0xFF16A34A),
+                                color: healthBand.colour,
                               ),
                             ),
                           ],
@@ -775,7 +898,7 @@ class _QuickActions extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Quick Actions',
+          tr('Quick Actions'),
           style: GoogleFonts.inter(
             fontSize: 13,
             fontWeight: FontWeight.w600,
@@ -896,12 +1019,81 @@ class _OverviewSection extends StatelessWidget {
   final List<Map<String, dynamic>> transactions;
   final List<Map<String, dynamic>> investments;
   final List<Map<String, dynamic>> goals;
+  final List<Map<String, dynamic>> loans;
+  final Map<String, dynamic> insurance;
+  final List<Map<String, dynamic>> deductions;
 
   const _OverviewSection({
     required this.transactions,
     required this.investments,
     required this.goals,
+    required this.loans,
+    required this.insurance,
+    required this.deductions,
   });
+
+  /// The customer's known recurring commitments: one row per loan EMI and one
+  /// per insurance premium. There is no bills/mandates endpoint, so these are
+  /// the only scheduled outflows the backend actually knows about.
+  List<({String name, String due, int paise})> _commitments() {
+    final rows = <({String name, String due, int paise})>[];
+    for (final l in loans) {
+      final emi = (l['emiPaise'] as num?)?.toInt() ?? 0;
+      if (emi <= 0) continue;
+      final type = (l['loanType'] ?? 'Loan').toString();
+      final lender = (l['lender'] ?? '').toString();
+      rows.add((
+        name: '$lender ${type[0].toUpperCase()}${type.substring(1)} EMI'.trim(),
+        due: 'Monthly',
+        paise: emi,
+      ));
+    }
+    for (final pol in ((insurance['policies'] as List?) ?? const [])) {
+      final m = Map<String, dynamic>.from(pol as Map);
+      final premium = (m['premiumPaise'] as num?)?.toInt() ?? 0;
+      if (premium <= 0) continue;
+      rows.add((
+        name: '${m['insurer'] ?? m['provider'] ?? 'Insurer'} premium',
+        due: _shortDate(m['nextDueDate'] ?? m['dueDate']),
+        paise: premium,
+      ));
+    }
+    return rows;
+  }
+
+  int _commitmentsTotalPaise() =>
+      _commitments().fold<int>(0, (sum, r) => sum + r.paise);
+
+  static const _monthNames = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  static String _shortDate(dynamic iso) {
+    final d = DateTime.tryParse((iso ?? '').toString());
+    if (d == null) return 'Scheduled';
+    return '${d.day} ${_monthNames[d.month - 1]}';
+  }
+
+  /// 80C usage from /v1/tax/deductions; was a fixed 96K of a 1.5L limit.
+  ({double used, double limit}) _section80C() {
+    for (final d in deductions) {
+      if ((d['section'] ?? '').toString() == '80C') {
+        return (
+          used: ((d['usedPaise'] as num?) ?? 0) / 100,
+          limit: ((d['limitPaise'] as num?) ?? 0) / 100,
+        );
+      }
+    }
+    return (used: 0, limit: 0);
+  }
+
+  static String _compactRupees(double rupees) {
+    if (rupees >= 10000000) return '₹${(rupees / 10000000).toStringAsFixed(1)}Cr';
+    if (rupees >= 100000) return '₹${(rupees / 100000).toStringAsFixed(1)}L';
+    if (rupees >= 1000) return '₹${(rupees / 1000).round()}K';
+    return '₹${rupees.round()}';
+  }
 
   /// Debits in the current calendar month, in rupees.
   double _spentThisMonth() => _spentIn(DateTime.now());
@@ -1031,7 +1223,7 @@ class _OverviewSection extends StatelessWidget {
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         Text(
-          'Overview',
+          tr('Overview'),
           style: GoogleFonts.inter(
             fontSize: 13,
             fontWeight: FontWeight.w600,
@@ -1052,7 +1244,7 @@ class _OverviewSection extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Spent this month',
+                      tr('Spent this month'),
                       style: GoogleFonts.inter(
                         fontSize: 10.5,
                         fontWeight: FontWeight.w500,
@@ -1076,7 +1268,7 @@ class _OverviewSection extends StatelessWidget {
                           // No prior month to compare with — say so rather than
                           // invent a trend.
                           return Text(
-                            'No prior month',
+                            tr('No prior month'),
                             style: GoogleFonts.inter(
                               fontSize: 10,
                               fontWeight: FontWeight.w600,
@@ -1123,69 +1315,35 @@ class _OverviewSection extends StatelessWidget {
               
               // Card 2: Asset Allocation
               _overviewCard(
-                width: 154,
+                width: 168,
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Asset Allocation',
+                      tr('Asset Allocation'),
                       style: GoogleFonts.inter(
                         fontSize: 10.5,
                         fontWeight: FontWeight.w500,
                         color: const Color(0xFF475569),
                       ),
                     ),
-                    const SizedBox(height: 4),
+                    const SizedBox(height: 6),
                     Expanded(
-                      child: Row(
-                        children: [
-                          // Legend and donut both come from the customer's
-                          // actual holdings, so they always agree with the
-                          // portfolio screen.
-                          Expanded(
-                            child: Column(
-                              mainAxisAlignment: MainAxisAlignment.center,
-                              crossAxisAlignment: CrossAxisAlignment.start,
-                              children: [
-                                for (var i = 0; i < _allocation().length; i++) ...[
-                                  if (i > 0) const SizedBox(height: 2.5),
-                                  _legendItem(
-                                    _sliceColours[i % _sliceColours.length],
-                                    _allocation()[i].key,
-                                    '${(_allocation()[i].value * 100).round()}%',
-                                  ),
-                                ],
-                                if (_allocation().isEmpty)
-                                  Text(
-                                    'No holdings',
-                                    style: GoogleFonts.inter(
-                                      fontSize: 10,
-                                      color: const Color(0xFF64748B),
-                                    ),
-                                  ),
-                              ],
+                      child: _AllocationRing(
+                        slices: [
+                          for (var i = 0; i < _allocation().length; i++)
+                            (
+                              label: _allocation()[i].key,
+                              share: _allocation()[i].value,
+                              colour: _sliceColours[i % _sliceColours.length],
                             ),
-                          ),
-                          SizedBox(
-                            width: 55,
-                            height: 55,
-                            child: CustomPaint(
-                              painter: DonutChartPainter(
-                                slices: [
-                                  for (var i = 0; i < _allocation().length; i++)
-                                    MapEntry(_sliceColours[i % _sliceColours.length],
-                                        _allocation()[i].value),
-                                ],
-                              ),
-                            ),
-                          ),
                         ],
                       ),
-                    )
+                    ),
                   ],
                 ),
               ),
-              
+
               // Card 3: Goals Progress
               _overviewCard(
                 width: 144,
@@ -1193,7 +1351,7 @@ class _OverviewSection extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Goals Progress',
+                      tr('Goals Progress'),
                       style: GoogleFonts.inter(
                         fontSize: 10.5,
                         fontWeight: FontWeight.w500,
@@ -1273,7 +1431,7 @@ class _OverviewSection extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Credit Score',
+                      tr('Credit Score'),
                       style: GoogleFonts.inter(
                         fontSize: 10.5,
                         fontWeight: FontWeight.w500,
@@ -1308,7 +1466,7 @@ class _OverviewSection extends StatelessWidget {
                               mainAxisAlignment: MainAxisAlignment.center,
                               children: [
                                 Text(
-                                  'Excellent',
+                                  tr('Excellent'),
                                   style: GoogleFonts.inter(
                                     fontSize: 11,
                                     fontWeight: FontWeight.w600,
@@ -1342,7 +1500,7 @@ class _OverviewSection extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Upcoming (7 days)',
+                      tr('Upcoming commitments'),
                       style: GoogleFonts.inter(
                         fontSize: 10.5,
                         fontWeight: FontWeight.w500,
@@ -1350,11 +1508,20 @@ class _OverviewSection extends StatelessWidget {
                       ),
                     ),
                     const SizedBox(height: 6),
-                    _billItem('HDFC SIP', 'Mon, 5 Jun', '₹5,000'),
-                    const SizedBox(height: 4),
-                    _billItem('Airtel Postpaid', 'Wed, 7 Jun', '₹999'),
-                    const SizedBox(height: 4),
-                    _billItem('LIC Premium', 'Sat, 10 Jun', '₹3,200'),
+                    if (_commitments().isEmpty)
+                      Text(
+                        tr('Nothing scheduled'),
+                        style: GoogleFonts.inter(
+                          fontSize: 10,
+                          color: const Color(0xFF94A3B8),
+                        ),
+                      )
+                    else
+                      for (final row in _commitments().take(3)) ...[
+                        _billItem(row.name, row.due,
+                            _compactRupees(row.paise / 100)),
+                        const SizedBox(height: 4),
+                      ],
                     const Spacer(),
                     Container(
                       padding: const EdgeInsets.only(top: 6),
@@ -1371,7 +1538,7 @@ class _OverviewSection extends StatelessWidget {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            'TOTAL',
+                            tr('TOTAL'),
                             style: GoogleFonts.inter(
                               fontSize: 9,
                               fontWeight: FontWeight.w600,
@@ -1379,7 +1546,7 @@ class _OverviewSection extends StatelessWidget {
                             ),
                           ),
                           Text(
-                            '₹9,199',
+                            _compactRupees(_commitmentsTotalPaise() / 100),
                             style: GoogleFonts.spaceMono(
                               fontSize: 11,
                               fontWeight: FontWeight.w700,
@@ -1400,7 +1567,7 @@ class _OverviewSection extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'Protection',
+                      tr('Protection'),
                       style: GoogleFonts.inter(
                         fontSize: 10.5,
                         fontWeight: FontWeight.w500,
@@ -1429,7 +1596,7 @@ class _OverviewSection extends StatelessWidget {
                             crossAxisAlignment: CrossAxisAlignment.start,
                             children: [
                               Text(
-                                'All Clear',
+                                tr('All Clear'),
                                 style: GoogleFonts.fraunces(
                                   fontSize: 14,
                                   fontWeight: FontWeight.w500,
@@ -1479,7 +1646,7 @@ class _OverviewSection extends StatelessWidget {
                     ),
                     const SizedBox(height: 8),
                     Text(
-                      '₹96K',
+                      _compactRupees(_section80C().used),
                       style: GoogleFonts.fraunces(
                         fontSize: 22,
                         fontWeight: FontWeight.w400,
@@ -1487,7 +1654,7 @@ class _OverviewSection extends StatelessWidget {
                       ),
                     ),
                     Text(
-                      'of ₹1.5L limit',
+                      'of ${_compactRupees(_section80C().limit)} limit',
                       style: GoogleFonts.inter(
                         fontSize: 9.5,
                         fontWeight: FontWeight.w600,
@@ -1723,7 +1890,11 @@ class DonutChartPainter extends CustomPainter {
   /// could not agree with the portfolio.
   final List<MapEntry<Color, double>> slices;
 
-  const DonutChartPainter({required this.slices});
+  /// Sweep fraction, 0..1. Drives the load-in animation; 1 draws the full
+  /// chart.
+  final double progress;
+
+  const DonutChartPainter({required this.slices, this.progress = 1});
 
   @override
   void paint(Canvas canvas, Size size) {
@@ -1744,9 +1915,20 @@ class DonutChartPainter extends CustomPainter {
       return;
     }
 
+    // Track behind the slices, so a partially-swept ring still reads as a
+    // chart rather than a stray arc.
+    canvas.drawArc(
+      rect, 0, 2 * math.pi, false,
+      Paint()
+        ..color = const Color(0xFFF1F5F9)
+        ..style = PaintingStyle.stroke
+        ..strokeWidth = 6.0,
+    );
+
     double startAngle = -math.pi / 2; // start from top
     for (final slice in slices) {
-      final sweepAngle = slice.value * 2 * math.pi;
+      final sweepAngle = slice.value * 2 * math.pi * progress.clamp(0.0, 1.0);
+      if (sweepAngle <= 0) continue;
       final paint = Paint()
         ..color = slice.key
         ..style = PaintingStyle.stroke
@@ -1762,7 +1944,7 @@ class DonutChartPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant DonutChartPainter oldDelegate) =>
-      oldDelegate.slices != slices;
+      oldDelegate.slices != slices || oldDelegate.progress != progress;
 }
 
 // Credit Score Gauge Painter
@@ -1849,7 +2031,7 @@ class _AiInsightCard extends StatelessWidget {
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    'FINIX INSIGHT',
+                    tr('FINIX INSIGHT'),
                     style: GoogleFonts.inter(
                       color: const Color(0xFF2E75B6),
                       fontSize: 9,
@@ -1906,7 +2088,7 @@ class _AiInsightCard extends StatelessWidget {
                     mainAxisSize: MainAxisSize.min,
                     children: [
                       Text(
-                        'Run simulation',
+                        tr('Run simulation'),
                         style: GoogleFonts.inter(
                           color: const Color(0xFF2E75B6),
                           fontSize: 12,
@@ -1970,7 +2152,7 @@ class _MarketSnapshot extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Market Snapshot',
+              tr('Market Snapshot'),
               style: GoogleFonts.inter(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -1991,7 +2173,7 @@ class _MarketSnapshot extends StatelessWidget {
               child: Row(
                 children: [
                   Text(
-                    'See full analysis',
+                    tr('See full analysis'),
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -2042,7 +2224,7 @@ class _MarketSnapshot extends StatelessWidget {
                       ),
                       const SizedBox(width: 6),
                       Text(
-                        'LIVE',
+                        tr('LIVE'),
                         style: GoogleFonts.inter(
                           color: const Color(0xFF4ADE80),
                           fontSize: 10,
@@ -2104,19 +2286,30 @@ class _MarketSnapshot extends StatelessWidget {
         children: [
           Text(
             label,
+            maxLines: 1,
+            overflow: TextOverflow.ellipsis,
             style: GoogleFonts.inter(
               color: Colors.white.withOpacity(0.6),
-              fontSize: 10,
+              fontSize: 9.5,
               fontWeight: FontWeight.w500,
             ),
           ),
           const SizedBox(height: 5),
-          Text(
-            value,
-            style: GoogleFonts.fraunces(
-              color: Colors.white,
-              fontSize: 17,
-              fontWeight: FontWeight.w400,
+          // Three stats share one row and gold now reads six figures
+          // (₹1,10,406), which at 17pt overran its third of the card. Smaller
+          // by default, and scaled down further rather than clipped when a
+          // value grows.
+          FittedBox(
+            fit: BoxFit.scaleDown,
+            alignment: Alignment.centerLeft,
+            child: Text(
+              value,
+              maxLines: 1,
+              style: GoogleFonts.fraunces(
+                color: Colors.white,
+                fontSize: 15,
+                fontWeight: FontWeight.w400,
+              ),
             ),
           ),
           const SizedBox(height: 5),
@@ -2160,7 +2353,7 @@ class _RecentActivity extends StatelessWidget {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Recent Activity',
+              tr('Recent Activity'),
               style: GoogleFonts.inter(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -2181,7 +2374,7 @@ class _RecentActivity extends StatelessWidget {
               child: Row(
                 children: [
                   Text(
-                    'See all',
+                    tr('See all'),
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w500,
@@ -2294,12 +2487,19 @@ class _RecentActivity extends StatelessWidget {
               children: [
                 Row(
                   children: [
-                    Text(
-                      title,
-                      style: GoogleFonts.inter(
-                        fontSize: 14,
-                        fontWeight: FontWeight.w600,
-                        color: const Color(0xFF0A1628),
+                    // Flexible, not bare: a recipient like "Account 4521 (IFSC
+                    // SBIN0000000)" is longer than the card and was pushing the
+                    // verified badge out and painting over the amount.
+                    Flexible(
+                      child: Text(
+                        title,
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: 14,
+                          fontWeight: FontWeight.w600,
+                          color: const Color(0xFF0A1628),
+                        ),
                       ),
                     ),
                     if (badge != null) ...[
@@ -2322,6 +2522,8 @@ class _RecentActivity extends StatelessWidget {
                 const SizedBox(height: 2),
                 Text(
                   subtitle,
+                  maxLines: 1,
+                  overflow: TextOverflow.ellipsis,
                   style: GoogleFonts.inter(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w500,
@@ -2331,12 +2533,25 @@ class _RecentActivity extends StatelessWidget {
               ],
             ),
           ),
-          Text(
-            amount,
-            style: GoogleFonts.spaceMono(
-              fontSize: 14,
-              fontWeight: FontWeight.w600,
-              color: isPositive ? const Color(0xFF16A34A) : const Color(0xFF0A1628),
+          const SizedBox(width: 8),
+          // Capped and scaled so a large figure stays on one line instead of
+          // squeezing the description or spilling past the card edge.
+          ConstrainedBox(
+            constraints: const BoxConstraints(maxWidth: 108),
+            child: FittedBox(
+              fit: BoxFit.scaleDown,
+              alignment: Alignment.centerRight,
+              child: Text(
+                amount,
+                maxLines: 1,
+                style: GoogleFonts.spaceMono(
+                  fontSize: 14,
+                  fontWeight: FontWeight.w600,
+                  color: isPositive
+                      ? const Color(0xFF16A34A)
+                      : const Color(0xFF0A1628),
+                ),
+              ),
             ),
           )
         ],
@@ -2507,4 +2722,167 @@ class DashedBorderPainter extends CustomPainter {
 
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => false;
+}
+
+/// Blurs its child when [hidden], leaving the layout untouched.
+///
+/// An ImageFiltered keeps the widget's size and position exactly as they were,
+/// so toggling cannot shift anything around it — replacing the digits with dots
+/// would change the text width and make the card jump.
+class _Blurred extends StatelessWidget {
+  const _Blurred({required this.hidden, required this.child});
+
+  final bool hidden;
+  final Widget child;
+
+  @override
+  Widget build(BuildContext context) {
+    return AnimatedSwitcher(
+      duration: const Duration(milliseconds: 180),
+      child: hidden
+          ? ImageFiltered(
+              key: const ValueKey('hidden'),
+              imageFilter: ImageFilter.blur(sigmaX: 9, sigmaY: 9),
+              // Blur alone leaves faint but readable shapes at this size, so
+              // the text is also dimmed before blurring.
+              child: Opacity(opacity: 0.75, child: child),
+            )
+          : KeyedSubtree(key: const ValueKey('shown'), child: child),
+    );
+  }
+}
+
+/// Animated allocation ring with its own legend.
+///
+/// The ring sweeps in on first build so it is visibly a chart loading rather
+/// than a static arc, and the dominant holding's share sits in the middle.
+///
+/// Labels are placed beside the ring, not radially around its edge: this card
+/// is 168px wide, and text pinned to the rim of a 62px ring overlaps itself as
+/// soon as two slices are adjacent. Colour pairs each label to its slice.
+class _AllocationRing extends StatelessWidget {
+  const _AllocationRing({required this.slices});
+
+  final List<({String label, double share, Color colour})> slices;
+
+  @override
+  Widget build(BuildContext context) {
+    if (slices.isEmpty) {
+      return Center(
+        child: Text(
+          tr('No holdings'),
+          style: GoogleFonts.inter(
+            fontSize: 10,
+            color: const Color(0xFF64748B),
+          ),
+        ),
+      );
+    }
+
+    final dominant = slices.reduce((a, b) => a.share >= b.share ? a : b);
+
+    return TweenAnimationBuilder<double>(
+      tween: Tween(begin: 0, end: 1),
+      duration: const Duration(milliseconds: 900),
+      curve: Curves.easeOutCubic,
+      builder: (context, t, _) {
+        return Row(
+          crossAxisAlignment: CrossAxisAlignment.center,
+          children: [
+            Expanded(
+              child: Column(
+                mainAxisAlignment: MainAxisAlignment.center,
+                crossAxisAlignment: CrossAxisAlignment.start,
+                children: [
+                  // Top three only; a 168px card cannot hold more without the
+                  // labels wrapping.
+                  for (final slice in slices.take(3))
+                    Padding(
+                      padding: const EdgeInsets.symmetric(vertical: 1.5),
+                      child: Row(
+                        children: [
+                          Container(
+                            width: 7,
+                            height: 7,
+                            decoration: BoxDecoration(
+                              color: slice.colour,
+                              borderRadius: BorderRadius.circular(2),
+                            ),
+                          ),
+                          const SizedBox(width: 5),
+                          Expanded(
+                            child: Text(
+                              tr(slice.label),
+                              maxLines: 1,
+                              overflow: TextOverflow.ellipsis,
+                              style: GoogleFonts.inter(
+                                fontSize: 9.5,
+                                fontWeight: FontWeight.w500,
+                                color: const Color(0xFF475569),
+                              ),
+                            ),
+                          ),
+                          const SizedBox(width: 3),
+                          Text(
+                            // Percentages count up with the sweep.
+                            '${(slice.share * 100 * t).round()}%',
+                            style: GoogleFonts.spaceMono(
+                              fontSize: 9.5,
+                              fontWeight: FontWeight.w700,
+                              color: const Color(0xFF0A1628),
+                            ),
+                          ),
+                        ],
+                      ),
+                    ),
+                ],
+              ),
+            ),
+            const SizedBox(width: 8),
+            SizedBox(
+              width: 62,
+              height: 62,
+              child: Stack(
+                alignment: Alignment.center,
+                children: [
+                  CustomPaint(
+                    size: const Size(62, 62),
+                    painter: DonutChartPainter(
+                      slices: [
+                        for (final slice in slices)
+                          MapEntry(slice.colour, slice.share),
+                      ],
+                      progress: t,
+                    ),
+                  ),
+                  Column(
+                    mainAxisSize: MainAxisSize.min,
+                    children: [
+                      Text(
+                        '${(dominant.share * 100 * t).round()}%',
+                        style: GoogleFonts.fraunces(
+                          fontSize: 13,
+                          fontWeight: FontWeight.w500,
+                          color: const Color(0xFF0A1628),
+                        ),
+                      ),
+                      Text(
+                        tr(dominant.label),
+                        maxLines: 1,
+                        overflow: TextOverflow.ellipsis,
+                        style: GoogleFonts.inter(
+                          fontSize: 7.5,
+                          color: const Color(0xFF94A3B8),
+                        ),
+                      ),
+                    ],
+                  ),
+                ],
+              ),
+            ),
+          ],
+        );
+      },
+    );
+  }
 }

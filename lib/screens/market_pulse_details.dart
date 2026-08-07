@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class MarketPulseDetailsScreen extends StatelessWidget {
@@ -177,7 +179,7 @@ class MarketPulseDetailsScreen extends StatelessWidget {
 
           // Title
           Text(
-            'Market Pulse Details',
+            tr('Market Pulse Details'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w500,

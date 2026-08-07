@@ -22,11 +22,50 @@ dependencies:
   # Runtime permission requests, plus openAppSettings() recovery when a
   # permission has been permanently denied.
   permission_handler: ^11.3.1
+  # On-device speech recognition for the assistant's mic button. Uses the
+  # platform recogniser (Android SpeechRecognizer), so no audio leaves the
+  # device and no API key is needed.
+  speech_to_text: ^7.0.0
+  # Opens the dialer for helpline numbers and the browser for the national
+  # cybercrime portal.
+  url_launcher: ^6.3.0
+  # Splash screen vectors (the chain links and wordmark).
+  flutter_svg: ^2.0.17
+  # Real system notifications on the phone's taskbar. Local only — raised by
+  # the app itself, so no Firebase project or server push is involved.
+  flutter_local_notifications: ^18.0.1
+  # Renders the privacy policy PDF inside the app, so the document is readable
+  # on a device with no PDF viewer installed.
+  flutter_pdfview: ^1.3.2
+  # Assets are bundled read-only; the PDF viewer needs a real file path.
+  path_provider: ^2.1.4
 
 dev_dependencies:
+  # Generates the Android mipmaps from assets/branding/app_icon.png.
+  flutter_launcher_icons: ^0.14.1
   flutter_test:
     sdk: flutter
   flutter_lints: ^3.0.0
 
 flutter:
   uses-material-design: true
+
+  fonts:
+    - family: Geist Mono
+      fonts:
+        - asset: assets/fonts/GeistMono.ttf
+
+  assets:
+    - assets/docs/
+    - assets/branding/
+    - assets/splash/
+
+# Launcher icon. The source logo is a wide 608x335 banner, so it is letterboxed
+# onto a square canvas by scratchpad/make_icon.py rather than stretched, which
+# would distort the mark.
+flutter_launcher_icons:
+  android: true
+  ios: false
+  image_path: assets/branding/app_icon.png
+  adaptive_icon_background: "#FFFFFF"
+  adaptive_icon_foreground: assets/branding/app_icon_foreground.png

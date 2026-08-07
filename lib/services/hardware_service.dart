@@ -41,21 +41,62 @@ class FinixHardware {
   }
 }
 
+/// Result of a biometric prompt.
+enum BiometricOutcome {
+  /// The user authenticated.
+  success,
+
+  /// The user cancelled, or the sensor rejected them.
+  failed,
+
+  /// This device or platform cannot show a biometric prompt at all.
+  unavailable,
+}
+
 class FinixBiometric {
   static const MethodChannel _biometricChannel =
       MethodChannel('com.finix.hardware/biometric');
 
-  /// Prompt user for biometric authentication (with mock fallback)
+  /// Prompt user for biometric authentication (with mock fallback).
+  ///
+  /// Returns true when the prompt is unavailable, so it must not be used to
+  /// gate anything sensitive — see [verify] for that.
   static Future<bool> authenticate({required String reason}) async {
+    return await verify(reason: reason) != BiometricOutcome.failed;
+  }
+
+  /// Biometric check that distinguishes "the user did not authenticate" from
+  /// "this platform cannot ask".
+  ///
+  /// [authenticate] returns true on any error, including the user cancelling
+  /// on a device that does have a fingerprint sensor. Gating an emergency
+  /// freeze on that would let anyone holding an unlocked phone freeze or —
+  /// far worse — unfreeze the account by dismissing the prompt. Callers guard
+  /// on [BiometricOutcome.failed] and decide for themselves whether to allow
+  /// [BiometricOutcome.unavailable] through.
+  static Future<BiometricOutcome> verify({required String reason}) async {
     try {
       final result = await _biometricChannel.invokeMethod(
         'authenticate',
         {'reason': reason},
       );
-      return result == true;
-    } catch (e) {
-      // Mock fallback: assume biometric succeeded in simulation/web mode
-      return true;
+      return result == true
+          ? BiometricOutcome.success
+          : BiometricOutcome.failed;
+    } on MissingPluginException {
+      // Web/desktop: no native implementation exists to ask with.
+      return BiometricOutcome.unavailable;
+    } on PlatformException catch (e) {
+      // No sensor, or nothing enrolled — the device cannot ask, as opposed to
+      // the user refusing.
+      const cannotAsk = {
+        'NotAvailable',
+        'NotEnrolled',
+        'NoHardware',
+        'PasscodeNotSet',
+      };
+      if (cannotAsk.contains(e.code)) return BiometricOutcome.unavailable;
+      return BiometricOutcome.failed;
     }
   }
 

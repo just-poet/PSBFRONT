@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class UpdateNomineeScreen extends StatefulWidget {
@@ -9,7 +11,9 @@ class UpdateNomineeScreen extends StatefulWidget {
 }
 
 class _UpdateNomineeScreenState extends State<UpdateNomineeScreen> {
-  final _nameController = TextEditingController(text: 'Priya Kapoor');
+  // Was pre-filled with 'Priya Kapoor', so submitting without editing set a
+  // stranger as the nominee. Blank until the customer types their own.
+  final _nameController = TextEditingController();
   final _relationshipController = TextEditingController(text: '');
   final _shareController = TextEditingController(text: '100');
   final _dobController = TextEditingController(text: '');
@@ -39,7 +43,7 @@ class _UpdateNomineeScreenState extends State<UpdateNomineeScreen> {
               Padding(
                 padding: const EdgeInsets.all(16.0),
                 child: Text(
-                  'Select Relationship',
+                  tr('Select Relationship'),
                   style: GoogleFonts.inter(
                     fontSize: 16,
                     fontWeight: FontWeight.w600,
@@ -121,7 +125,7 @@ class _UpdateNomineeScreenState extends State<UpdateNomineeScreen> {
                   children: [
                     // Section Heading: Current nominee
                     Text(
-                      'Current nominee',
+                      tr('Current nominee'),
                       style: GoogleFonts.inter(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -137,7 +141,7 @@ class _UpdateNomineeScreenState extends State<UpdateNomineeScreen> {
 
                     // Section Heading: New nominee details
                     Text(
-                      'New nominee details',
+                      tr('New nominee details'),
                       style: GoogleFonts.inter(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -236,7 +240,7 @@ class _UpdateNomineeScreenState extends State<UpdateNomineeScreen> {
           Expanded(
             child: Center(
               child: Text(
-                'Update Nominee',
+                tr('Update Nominee'),
                 style: GoogleFonts.inter(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -327,7 +331,7 @@ class _UpdateNomineeScreenState extends State<UpdateNomineeScreen> {
                 ),
                 const SizedBox(width: 3),
                 Text(
-                  'ON RECORD',
+                  tr('ON RECORD'),
                   style: GoogleFonts.inter(
                     fontSize: 8.5,
                     fontWeight: FontWeight.w600,
@@ -483,7 +487,7 @@ class _UpdateNomineeScreenState extends State<UpdateNomineeScreen> {
         ),
         child: Center(
           child: Text(
-            'Save nominee',
+            tr('Save nominee'),
             style: GoogleFonts.inter(
               fontSize: 14,
               fontWeight: FontWeight.w600,

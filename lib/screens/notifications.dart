@@ -1,5 +1,10 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+import '../services/api_service.dart';
+import '../services/notification_service.dart';
 
 class NotificationsScreen extends StatefulWidget {
   const NotificationsScreen({super.key});
@@ -38,122 +43,154 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   NotificationFilter _selectedFilter = NotificationFilter.all;
 
   // Notification items list
-  late List<NotificationModel> _notifications;
+  List<NotificationModel> _notifications = [];
+  bool _loading = true;
+
+  /// Whether the OS will let us put anything on the status bar.
+  bool _pushAllowed = true;
+
+  /// IDs already seen, so returning to this screen does not re-notify for
+  /// everything in the feed.
+  static final Set<String> _alreadyNotified = <String>{};
 
   @override
   void initState() {
     super.initState();
-    _resetNotifications();
+    _load();
+    _checkPushPermission();
   }
 
-  void _resetNotifications() {
-    _notifications = [
-      NotificationModel(
-        id: '1',
-        title: 'Unusual transaction paused',
-        time: '2 min ago',
-        category: NotificationFilter.security,
-        icon: Icons.block_flipped,
-        iconBgColor: const Color(0xFFDC2626), // color/red/51
-        iconColor: Colors.white,
-        section: 'TODAY',
-        subtitleSpans: [
-          const TextSpan(text: 'We blocked a '),
-          const TextSpan(text: '₹85,000 transfer', style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0B2545))),
-          const TextSpan(text: ' to a first-time recipient at 1:47 AM. Review and decide.'),
-        ],
-      ),
-      NotificationModel(
-        id: '2',
-        title: 'Your Europe Trip goal is ahead',
-        time: '1 hr ago',
-        category: NotificationFilter.wealth,
-        icon: Icons.auto_awesome_outlined,
-        iconBgColor: const Color(0xFFEEF4FA),
-        iconColor: const Color(0xFF2E75B6),
-        section: 'TODAY',
-        subtitleSpans: [
-          const TextSpan(text: "You're "),
-          const TextSpan(text: '8 weeks ahead of schedule', style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0B2545))),
-          const TextSpan(text: '. Consider redirecting ₹2,000/mo to retirement.'),
-        ],
-      ),
-      NotificationModel(
-        id: '3',
-        title: 'SIP debit successful',
-        time: '10:00 AM',
-        category: NotificationFilter.transactions,
-        icon: Icons.check_rounded,
-        iconBgColor: const Color(0xFFE8F5E9),
-        iconColor: const Color(0xFF16A34A),
-        section: 'TODAY',
-        subtitleSpans: [
-          const TextSpan(text: 'HDFC Bluechip SIP · '),
-          const TextSpan(text: '₹5,000', style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0B2545))),
-          const TextSpan(text: ' debited from XXXX 8472. Ref: HDFC8472.'),
-        ],
-      ),
-      NotificationModel(
-        id: '4',
-        title: 'Goal achieved — Emergency Fund',
-        time: '8:14 AM',
-        category: NotificationFilter.wealth,
-        icon: Icons.workspace_premium_outlined,
-        iconBgColor: const Color(0xFFFFF9E6),
-        iconColor: const Color(0xFFD97706),
-        section: 'TODAY',
-        subtitleSpans: [
-          const TextSpan(text: "You've completed your "),
-          const TextSpan(text: '₹3,00,000 emergency fund', style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0B2545))),
-          const TextSpan(text: '. Congratulations!'),
-        ],
-      ),
-      NotificationModel(
-        id: '5',
-        title: 'Suspicious SMS detected',
-        time: '11:20 PM',
-        category: NotificationFilter.security,
-        icon: Icons.shield_outlined,
-        iconBgColor: const Color(0xFFFFEDD5),
-        iconColor: const Color(0xFFEA580C),
-        section: 'YESTERDAY',
-        subtitleSpans: [
-          const TextSpan(text: 'Message from '),
-          const TextSpan(text: '+91 98765 43210', style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0B2545))),
-          const TextSpan(text: ' flagged as phishing. We did not let it through.'),
-        ],
-      ),
-      NotificationModel(
-        id: '6',
-        title: 'SBI account synced',
-        time: '4:32 PM',
-        category: NotificationFilter.transactions,
-        icon: Icons.credit_card_outlined,
-        iconBgColor: const Color(0xFFEEF4FA),
-        iconColor: const Color(0xFF0B2545),
-        section: 'YESTERDAY',
-        subtitleSpans: [
-          const TextSpan(text: 'Latest balance updated · '),
-          const TextSpan(text: '6 new transactions', style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0B2545))),
-          const TextSpan(text: ' imported.'),
-        ],
-      ),
-      NotificationModel(
-        id: '7',
-        title: 'Your health score increased',
-        time: '04 Jun',
-        category: NotificationFilter.wealth,
-        icon: Icons.trending_up_rounded,
-        iconBgColor: const Color(0xFFEEF4FA),
-        iconColor: const Color(0xFF2E75B6),
-        section: 'EARLIER THIS WEEK',
-        subtitleSpans: [
-          const TextSpan(text: 'Up by '),
-          const TextSpan(text: '24 points', style: TextStyle(fontWeight: FontWeight.w600, color: Color(0xFF0B2545))),
-          const TextSpan(text: ' this month. Now at 782 / 900 — Excellent.'),
-        ],
-      ),
-    ];
+  Future<void> _checkPushPermission() async {
+    final granted = await FinixNotifications.instance.hasPermission();
+    if (!mounted) return;
+    setState(() => _pushAllowed = granted);
+  }
+
+  Future<void> _enablePush() async {
+    final granted = await FinixNotifications.instance.requestPermission();
+    if (!mounted) return;
+    setState(() => _pushAllowed = granted);
+    if (granted) {
+      await FinixNotifications.instance.show(
+        title: 'Notifications on',
+        body: 'FINIX will alert you about payments and security events.',
+      );
+    }
+  }
+
+  /// Raises a system notification for anything that arrived since last time.
+  ///
+  /// Only security and transaction notices interrupt; goal milestones and
+  /// insights are not worth a buzz.
+  Future<void> _pushNewArrivals(List<Map<String, dynamic>> items) async {
+    if (!_pushAllowed) return;
+    for (final n in items.take(5)) {
+      final id = (n['id'] ?? '').toString();
+      if (id.isEmpty || _alreadyNotified.contains(id)) continue;
+      _alreadyNotified.add(id);
+
+      final category = (n['category'] ?? '').toString();
+      if (category != 'security' && category != 'transactions') continue;
+
+      await FinixNotifications.instance.show(
+        title: (n['title'] ?? '').toString(),
+        body: (n['body'] ?? '').toString(),
+        security: category == 'security',
+      );
+    }
+  }
+
+  /// Notifications come from /v1/notifications, which the backend derives from
+  /// this customer's own activity: settled payments, security events off the
+  /// audit trail, goal milestones actually reached and premiums falling due.
+  ///
+  /// The screen used to hold a fixed list — an "unusual transaction paused", a
+  /// "₹85,000 transfer", a "₹3,00,000 emergency fund" — shown to every account
+  /// including brand-new ones that had done nothing at all.
+  Future<void> _load() async {
+    final items = await ApiService.instance.getNotifications();
+    if (!mounted) return;
+    setState(() {
+      _notifications = items.map(_toModel).toList();
+      _loading = false;
+    });
+    await _pushNewArrivals(items);
+  }
+
+  NotificationModel _toModel(Map<String, dynamic> n) {
+    final category = (n['category'] ?? '').toString();
+    final severity = (n['severity'] ?? 'info').toString();
+    final at = DateTime.tryParse((n['createdAt'] ?? '').toString())?.toLocal();
+    final style = _styleFor(category, severity);
+
+    return NotificationModel(
+      id: (n['id'] ?? '').toString(),
+      title: (n['title'] ?? '').toString(),
+      time: _relative(at),
+      category: _filterFor(category),
+      icon: style.icon,
+      iconBgColor: style.colour,
+      iconColor: Colors.white,
+      section: _section(at),
+      subtitleSpans: [TextSpan(text: (n['body'] ?? '').toString())],
+    );
+  }
+
+  /// The backend's categories are finer-grained than this screen's four tabs.
+  static NotificationFilter _filterFor(String category) {
+    switch (category) {
+      case 'security':
+        return NotificationFilter.security;
+      case 'transactions':
+        return NotificationFilter.transactions;
+      case 'goals':
+      case 'insights':
+      case 'tax':
+        return NotificationFilter.wealth;
+      default:
+        return NotificationFilter.all;
+    }
+  }
+
+  static ({IconData icon, Color colour}) _styleFor(String category, String severity) {
+    if (severity == 'critical') {
+      return (icon: Icons.block_flipped, colour: const Color(0xFFDC2626));
+    }
+    if (severity == 'warning') {
+      return (icon: Icons.warning_amber_rounded, colour: const Color(0xFFF59E0B));
+    }
+    switch (category) {
+      case 'security':
+        return (icon: Icons.shield_outlined, colour: const Color(0xFF2E75B6));
+      case 'transactions':
+        return (icon: Icons.swap_horiz_rounded, colour: const Color(0xFF16A34A));
+      case 'goals':
+        return (icon: Icons.flag_outlined, colour: const Color(0xFFC8A951));
+      default:
+        return (icon: Icons.info_outline_rounded, colour: const Color(0xFF2E75B6));
+    }
+  }
+
+  static String _relative(DateTime? at) {
+    if (at == null) return '';
+    final diff = DateTime.now().difference(at);
+    if (diff.isNegative) return 'Scheduled';
+    if (diff.inMinutes < 1) return 'Just now';
+    if (diff.inMinutes < 60) return '${diff.inMinutes} min ago';
+    if (diff.inHours < 24) return '${diff.inHours}h ago';
+    if (diff.inDays < 7) return '${diff.inDays}d ago';
+    return '${at.day}/${at.month}/${at.year}';
+  }
+
+  static String _section(DateTime? at) {
+    if (at == null) return 'EARLIER';
+    final now = DateTime.now();
+    final date = DateTime(at.year, at.month, at.day);
+    final today = DateTime(now.year, now.month, now.day);
+    final diff = today.difference(date).inDays;
+    if (diff <= 0) return 'TODAY';
+    if (diff == 1) return 'YESTERDAY';
+    return 'EARLIER';
   }
 
   void _clearNotifications() {
@@ -203,11 +240,14 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
             _buildAppBar(context),
 
             // 3. Horizontal Filters Row
+            if (!_pushAllowed) _buildPushPrompt(),
             if (_notifications.isNotEmpty) _buildFiltersRow(),
 
             // 4. Notifications List / Empty State
             Expanded(
-              child: _notifications.isEmpty
+              child: _loading
+                  ? const Center(child: CircularProgressIndicator())
+                  : _notifications.isEmpty
                   ? _buildEmptyState()
                   : SingleChildScrollView(
                       padding: const EdgeInsets.fromLTRB(20.0, 4.0, 20.0, 24.0),
@@ -269,7 +309,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           
           // Title
           Text(
-            'Notifications',
+            tr('Notifications'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -291,7 +331,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
                 ),
                 child: Center(
                   child: Text(
-                    'Clear',
+                    tr('Clear'),
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w700,
@@ -456,6 +496,47 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
   }
 
   // Empty State Widget when notifications are cleared
+  /// Offers to turn on system notifications. Shown only while they are off.
+  Widget _buildPushPrompt() {
+    return Container(
+      margin: const EdgeInsets.fromLTRB(20, 4, 20, 8),
+      padding: const EdgeInsets.all(14),
+      decoration: BoxDecoration(
+        color: const Color(0xFFEEF4FA),
+        borderRadius: BorderRadius.circular(12),
+        border: Border.all(color: const Color(0xFF2E75B6).withOpacity(0.25)),
+      ),
+      child: Row(
+        children: [
+          const Icon(Icons.notifications_active_outlined,
+              size: 18, color: Color(0xFF2E75B6)),
+          const SizedBox(width: 10),
+          Expanded(
+            child: Text(
+              tr('Get alerts on your phone for payments and security events.'),
+              style: GoogleFonts.inter(
+                fontSize: 11.5,
+                height: 1.4,
+                color: const Color(0xFF334155),
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: _enablePush,
+            child: Text(
+              tr('Turn on'),
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF2E75B6),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+  }
+
   Widget _buildEmptyState() {
     return Center(
       child: Column(
@@ -476,7 +557,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
           const SizedBox(height: 20),
           Text(
-            'All caught up!',
+            tr('All caught up!'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -485,7 +566,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           ),
           const SizedBox(height: 6),
           Text(
-            'No new notifications for you right now.',
+            tr('No new notifications for you right now.'),
             style: GoogleFonts.inter(
               fontSize: 13,
               fontWeight: FontWeight.w400,
@@ -495,9 +576,8 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
           const SizedBox(height: 24),
           ElevatedButton(
             onPressed: () {
-              setState(() {
-                _resetNotifications();
-              });
+              setState(() => _loading = true);
+              _load();
             },
             style: ElevatedButton.styleFrom(
               backgroundColor: const Color(0xFF0B2545),
@@ -508,7 +588,7 @@ class _NotificationsScreenState extends State<NotificationsScreen> {
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             ),
             child: Text(
-              'Reset Notifications',
+              tr('Reset Notifications'),
               style: GoogleFonts.inter(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,

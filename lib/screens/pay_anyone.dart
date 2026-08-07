@@ -1,6 +1,10 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+import '../services/api_service.dart';
 import 'pin_screen.dart';
 import '../main.dart';
 import 'payment_success.dart';
@@ -31,7 +35,7 @@ class PayAnyoneScreen extends StatefulWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Pay to Contact',
+                tr('Pay to Contact'),
                 style: GoogleFonts.inter(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -90,7 +94,7 @@ class PayAnyoneScreen extends StatefulWidget {
               const SizedBox(height: 20),
               // Amount label
               Text(
-                'ENTER AMOUNT',
+                tr('ENTER AMOUNT'),
                 style: GoogleFonts.inter(
                   fontSize: 11,
                   fontWeight: FontWeight.w600,
@@ -189,7 +193,7 @@ class PayAnyoneScreen extends StatefulWidget {
                   ),
                   child: Center(
                     child: Text(
-                      'Pay Securely →',
+                      tr('Pay Securely →'),
                       style: GoogleFonts.inter(
                         fontSize: 16,
                         fontWeight: FontWeight.w600,
@@ -214,71 +218,69 @@ class _PayAnyoneScreenState extends State<PayAnyoneScreen> {
   final TextEditingController _searchController = TextEditingController();
   String _query = '';
 
-  final List<Map<String, dynamic>> _recents = [
-    {
-      'initials': 'RS',
-      'name': 'Rohan',
-      'gradient': const [Color(0xFF2E75B6), Color(0xFF0B2545)]
-    },
-    {
-      'initials': 'PM',
-      'name': 'Priya',
-      'gradient': const [Color(0xFFC8A951), Color(0xFF8E7733)]
-    },
-    {
-      'initials': 'AK',
-      'name': 'Amit',
-      'gradient': const [Color(0xFF12A34A), Color(0xFF14532D)]
-    },
-    {
-      'initials': 'NV',
-      'name': 'Neha',
-      'gradient': const [Color(0xFFDC2626), Color(0xFF7F1D1D)]
-    },
-    {
-      'initials': 'RK',
-      'name': 'Ravi',
-      'gradient': const [Color(0xFF2E75B6), Color(0xFF0B2545)]
-    },
-    {
-      'initials': 'SS',
-      'name': 'Sneha',
-      'gradient': const [Color(0xFFF59E0B), Color(0xFF92400E)]
-    },
+  // Recents and the contact list are the customer's own beneficiaries, from
+  // /v1/beneficiaries and /v1/beneficiaries/recent. Both were hardcoded rosters
+  // (Rohan Sharma, Angel Priya, Arjun Chauhan...) that showed the same six
+  // payees to everyone and let you tap through to pay a stranger's UPI ID.
+  List<Map<String, dynamic>> _recents = [];
+  List<Map<String, String>> _allContacts = [];
+  bool _loadingContacts = true;
+
+  /// Avatar colours cycle deterministically so the same payee keeps the same
+  /// colour between builds.
+  static const List<List<Color>> _avatarGradients = [
+    [Color(0xFF2E75B6), Color(0xFF0B2545)],
+    [Color(0xFFC8A951), Color(0xFF8E7733)],
+    [Color(0xFF12A34A), Color(0xFF14532D)],
+    [Color(0xFFDC2626), Color(0xFF7F1D1D)],
+    [Color(0xFFF59E0B), Color(0xFF92400E)],
   ];
 
-  final List<Map<String, String>> _allContacts = [
-    {
-      'initials': 'RS',
-      'name': 'Rohan Sharma',
-      'upiId': 'rohan.sharma@okhdfcbank'
-    },
-    {
-      'initials': 'PM',
-      'name': 'Angel Priya',
-      'upiId': 'priyam@ybl'
-    },
-    {
-      'initials': 'AK',
-      'name': 'Arjun Chauhan',
-      'upiId': '9876543210@upi'
-    },
-    {
-      'initials': 'NV',
-      'name': 'Neha Verma',
-      'upiId': 'nehaverma@okaxis'
-    },
-    {
-      'initials': 'RK',
-      'name': 'RaviKrishnan G',
-      'upiId': 'ravi.k@paytm'
-    },
-    {
-      'initials': 'SS',
-      'name': 'Sneha Reddy',
-      'upiId': 'snehas@okicici'
-    },
-  ];
+  static String _initialsOf(String name) {
+    final cleaned = name.split('@').first.replaceAll(RegExp(r'[._-]'), ' ');
+    final parts =
+        cleaned.trim().split(RegExp(r'\s+')).where((p) => p.isNotEmpty).toList();
+    if (parts.isEmpty) return '--';
+    if (parts.length == 1) {
+      return parts.first.substring(0, parts.first.length >= 2 ? 2 : 1)
+          .toUpperCase();
+    }
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+
+  Future<void> _loadContacts() async {
+    final beneficiaries = await ApiService.instance.getBeneficiaries();
+    if (!mounted) return;
+    final contacts = <Map<String, String>>[];
+    for (final b in beneficiaries) {
+      final name =
+          (b['beneficiaryName'] ?? b['name'] ?? '').toString().trim();
+      final upi =
+          (b['upiIdOrBankDetails'] ?? b['upiId'] ?? '').toString().trim();
+      if (name.isEmpty && upi.isEmpty) continue;
+      contacts.add({
+        'initials': _initialsOf(name.isNotEmpty ? name : upi),
+        'name': name.isNotEmpty ? name : upi,
+        'upiId': upi,
+      });
+    }
+    setState(() {
+      _allContacts = contacts;
+      // Recents reuse the same payees; the dedicated recents endpoint returns
+      // UPI handles only, so the saved beneficiary list gives better labels.
+      _recents = [
+        for (var i = 0; i < contacts.length && i < 6; i++)
+          {
+            'initials': contacts[i]['initials'],
+            'name': contacts[i]['name']!.split(' ').first,
+            'upiId': contacts[i]['upiId'],
+            'gradient': _avatarGradients[i % _avatarGradients.length],
+          }
+      ];
+      _filteredContacts = List.from(contacts);
+      _loadingContacts = false;
+    });
+  }
 
   List<Map<String, String>> _filteredContacts = [];
 
@@ -286,6 +288,7 @@ class _PayAnyoneScreenState extends State<PayAnyoneScreen> {
   void initState() {
     super.initState();
     _filteredContacts = List.from(_allContacts);
+    _loadContacts();
   }
 
   @override
@@ -337,7 +340,7 @@ class _PayAnyoneScreenState extends State<PayAnyoneScreen> {
                     if (_query.isEmpty) ...[
                       // Recent Section Title
                       Text(
-                        'Recent',
+                        tr('Recent'),
                         style: GoogleFonts.inter(
                           fontSize: 13,
                           fontWeight: FontWeight.w600,
@@ -477,12 +480,20 @@ class _PayAnyoneScreenState extends State<PayAnyoneScreen> {
   }
 
   Widget _buildAllContactsList() {
+    if (_loadingContacts) {
+      return const Padding(
+        padding: EdgeInsets.only(top: 40.0),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
     if (_filteredContacts.isEmpty) {
       return Center(
         child: Padding(
           padding: const EdgeInsets.only(top: 40.0),
           child: Text(
-            'No contacts found.',
+            _query.isEmpty
+                ? 'No saved payees yet.'
+                : 'No contacts match "$_query".',
             style: GoogleFonts.inter(
               fontSize: 14,
               color: const Color(0xFF94A3B8),
@@ -611,7 +622,7 @@ class _AppBar extends StatelessWidget {
             ),
           ),
           Text(
-            'Pay Anyone',
+            tr('Pay Anyone'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,

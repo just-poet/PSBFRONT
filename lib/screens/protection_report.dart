@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'coverage_analysis.dart';
 import 'smooth_route.dart';
@@ -32,7 +34,7 @@ class ProtectionReportScreen extends StatelessWidget {
 
                     // Section Header: By area
                     Text(
-                      'By area',
+                      tr('By area'),
                       style: GoogleFonts.inter(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -125,7 +127,7 @@ class ProtectionReportScreen extends StatelessWidget {
         children: [
           // Title
           Text(
-            'Protection Report',
+            tr('Protection Report'),
             style: GoogleFonts.inter(
               fontSize: 15,
               fontWeight: FontWeight.w600,
@@ -216,7 +218,7 @@ class ProtectionReportScreen extends StatelessWidget {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'FINIX PROTECTION SCORE',
+                tr('FINIX PROTECTION SCORE'),
                 style: GoogleFonts.inter(
                   fontSize: 10,
                   fontWeight: FontWeight.w600,
@@ -414,7 +416,7 @@ class ProtectionReportScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(4),
                   ),
                   child: Text(
-                    'FINIX INSIGHT',
+                    tr('FINIX INSIGHT'),
                     style: GoogleFonts.inter(
                       fontSize: 8.5,
                       fontWeight: FontWeight.w600,

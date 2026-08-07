@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'market_pulse_details.dart';
@@ -209,7 +211,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
 
           // Title
           Text(
-            'Markets',
+            tr('Markets'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -270,7 +272,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
               Row(
                 children: [
                   Text(
-                    'MARKET OVERVIEW',
+                    tr('MARKET OVERVIEW'),
                     style: GoogleFonts.inter(
                       fontSize: 10,
                       fontWeight: FontWeight.w500,
@@ -287,7 +289,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
                       border: Border.all(color: Colors.white.withOpacity(0.2)),
                     ),
                     child: Text(
-                      'Live',
+                      tr('Live'),
                       style: GoogleFonts.inter(
                         fontSize: 9,
                         fontWeight: FontWeight.w600,
@@ -431,7 +433,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
               crossAxisAlignment: CrossAxisAlignment.start,
               children: [
                 Text(
-                  'YOUR PORTFOLIO TODAY',
+                  tr('YOUR PORTFOLIO TODAY'),
                   style: GoogleFonts.inter(
                     fontSize: 9,
                     fontWeight: FontWeight.w600,
@@ -799,7 +801,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Market pulse',
+              tr('Market pulse'),
               style: GoogleFonts.inter(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
@@ -818,7 +820,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
                 );
               },
               child: Text(
-                'Details →',
+                tr('Details →'),
                 style: GoogleFonts.inter(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -928,7 +930,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Sector performance',
+              tr('Sector performance'),
               style: GoogleFonts.inter(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
@@ -947,7 +949,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
                 );
               },
               child: Text(
-                'View all →',
+                tr('View all →'),
                 style: GoogleFonts.inter(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -1107,7 +1109,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Top movers',
+              tr('Top movers'),
               style: GoogleFonts.inter(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
@@ -1126,7 +1128,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
                 );
               },
               child: Text(
-                'View all →',
+                tr('View all →'),
                 style: GoogleFonts.inter(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -1278,7 +1280,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Top AI insights',
+              tr('Top AI insights'),
               style: GoogleFonts.inter(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
@@ -1287,7 +1289,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
             ),
             GestureDetector(
               child: Text(
-                'View all →',
+                tr('View all →'),
                 style: GoogleFonts.inter(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -1535,7 +1537,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
           mainAxisAlignment: MainAxisAlignment.spaceBetween,
           children: [
             Text(
-              'Market news',
+              tr('Market news'),
               style: GoogleFonts.inter(
                 fontSize: 15,
                 fontWeight: FontWeight.w700,
@@ -1544,7 +1546,7 @@ class _MarketAnalysisScreenState extends State<MarketAnalysisScreen> {
             ),
             GestureDetector(
               child: Text(
-                'All news →',
+                tr('All news →'),
                 style: GoogleFonts.inter(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,

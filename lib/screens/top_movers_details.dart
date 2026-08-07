@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class TopMoversDetailsScreen extends StatefulWidget {
@@ -143,7 +145,7 @@ class _TopMoversDetailsScreenState extends State<TopMoversDetailsScreen> {
                   children: [
                     // Title section
                     Text(
-                      'Market Movers',
+                      tr('Market Movers'),
                       style: GoogleFonts.inter(
                         fontSize: 32,
                         fontWeight: FontWeight.w600,
@@ -275,7 +277,7 @@ class _TopMoversDetailsScreenState extends State<TopMoversDetailsScreen> {
                     )
                   : Center(
                       child: Text(
-                        'Top Movers',
+                        tr('Top Movers'),
                         style: GoogleFonts.inter(
                           fontSize: 16,
                           fontWeight: FontWeight.w500,
@@ -390,7 +392,7 @@ class _TopMoversDetailsScreenState extends State<TopMoversDetailsScreen> {
               Expanded(
                 flex: 4,
                 child: Text(
-                  'SYMBOL',
+                  tr('SYMBOL'),
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,

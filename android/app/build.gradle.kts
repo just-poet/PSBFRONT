@@ -12,6 +12,10 @@ android {
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
+        // flutter_local_notifications uses java.time, which does not exist on
+        // older Android runtimes. Desugaring back-ports it; without this the
+        // release build fails at :app:checkReleaseAarMetadata.
+        isCoreLibraryDesugaringEnabled = true
     }
 
     defaultConfig {
@@ -39,6 +43,9 @@ dependencies {
     // hardware-backed signing key. androidx.biometric requires the host to be a
     // FragmentActivity, which FlutterActivity already is.
     implementation("androidx.biometric:biometric:1.1.0")
+
+    // Required by isCoreLibraryDesugaringEnabled above.
+    coreLibraryDesugaring("com.android.tools:desugar_jdk_libs:2.1.4")
 }
 
 kotlin {

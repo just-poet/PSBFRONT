@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 // main.dart import removed
 
@@ -313,7 +315,7 @@ class _DocumentsDownloadScreenState extends State<DocumentsDownloadScreen> {
           Expanded(
             child: Center(
               child: Text(
-                'Documents',
+                tr('Documents'),
                 style: GoogleFonts.inter(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -711,7 +713,7 @@ class _DocumentsDownloadScreenState extends State<DocumentsDownloadScreen> {
                   ),
                   const TextSpan(text: 'Files marked '),
                   TextSpan(
-                    text: 'Verified',
+                    text: tr('Verified'),
                     style: GoogleFonts.inter(
                       fontWeight: FontWeight.w600,
                       color: const Color(0xFF0B2545),
@@ -760,7 +762,7 @@ class _DocumentsDownloadScreenState extends State<DocumentsDownloadScreen> {
                   ),
             const SizedBox(width: 8),
             Text(
-              'Download all as ZIP',
+              tr('Download all as ZIP'),
               style: GoogleFonts.inter(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -788,7 +790,7 @@ class _DocumentsDownloadScreenState extends State<DocumentsDownloadScreen> {
           ),
           const SizedBox(height: 16),
           Text(
-            'No documents found',
+            tr('No documents found'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,

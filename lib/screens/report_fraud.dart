@@ -1,4 +1,9 @@
+import 'package:flutter/gestures.dart';
 import 'package:flutter/material.dart';
+
+import '../services/contact_service.dart';
+
+import '../services/locale_service.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'report_acknowledgement.dart';
@@ -63,7 +68,7 @@ class _ReportFraudScreenState extends State<ReportFraudScreen> {
                   children: [
                     // Category Heading
                     Text(
-                      'Category',
+                      tr('Category'),
                       style: GoogleFonts.inter(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
@@ -78,7 +83,7 @@ class _ReportFraudScreenState extends State<ReportFraudScreen> {
 
                     // Description Heading
                     Text(
-                      'Description',
+                      tr('Description'),
                       style: GoogleFonts.inter(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
@@ -93,7 +98,7 @@ class _ReportFraudScreenState extends State<ReportFraudScreen> {
 
                     // Evidence Heading
                     Text(
-                      'Evidence',
+                      tr('Evidence'),
                       style: GoogleFonts.inter(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,
@@ -154,7 +159,7 @@ class _ReportFraudScreenState extends State<ReportFraudScreen> {
           Expanded(
             child: Center(
               child: Text(
-                'Report Fraud',
+                tr('Report Fraud'),
                 style: GoogleFonts.inter(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -281,7 +286,7 @@ class _ReportFraudScreenState extends State<ReportFraudScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Attached successfully',
+                    tr('Attached successfully'),
                     style: GoogleFonts.inter(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
@@ -331,7 +336,7 @@ class _ReportFraudScreenState extends State<ReportFraudScreen> {
               ),
               const SizedBox(height: 9),
               Text(
-                'Upload screenshot or receipt',
+                tr('Upload screenshot or receipt'),
                 style: GoogleFonts.inter(
                   fontSize: 12.5,
                   fontWeight: FontWeight.w500,
@@ -360,7 +365,7 @@ class _ReportFraudScreenState extends State<ReportFraudScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Upload Evidence File',
+                tr('Upload Evidence File'),
                 style: GoogleFonts.inter(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -375,7 +380,7 @@ class _ReportFraudScreenState extends State<ReportFraudScreen> {
                   child: const Icon(Icons.camera_alt_outlined, color: Color(0xFF0B2545)),
                 ),
                 title: Text(
-                  'Take Photo / Screenshot',
+                  tr('Take Photo / Screenshot'),
                   style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500, color: const Color(0xFF0A1628)),
                 ),
                 onTap: () {
@@ -405,7 +410,7 @@ class _ReportFraudScreenState extends State<ReportFraudScreen> {
                   child: const Icon(Icons.picture_as_pdf_outlined, color: Color(0xFF0B2545)),
                 ),
                 title: Text(
-                  'Upload PDF / Statement',
+                  tr('Upload PDF / Statement'),
                   style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500, color: const Color(0xFF0A1628)),
                 ),
                 onTap: () {
@@ -477,7 +482,7 @@ class _ReportFraudScreenState extends State<ReportFraudScreen> {
                     ),
                     const SizedBox(height: 18),
                     Text(
-                      'Attaching Evidence',
+                      tr('Attaching Evidence'),
                       style: GoogleFonts.inter(
                         fontSize: 14.5,
                         fontWeight: FontWeight.w600,
@@ -542,12 +547,19 @@ class _ReportFraudScreenState extends State<ReportFraudScreen> {
                   color: Colors.black,
                 ),
                 children: [
-                  const TextSpan(text: 'Forward to National Cybercrime Portal ( '),
+                  TextSpan(text: tr('Forward to National Cybercrime Portal ( ')),
+                  // Tapping the helpline opens the dialer: someone reporting a
+                  // fraud should not have to memorise digits and retype them.
                   TextSpan(
-                    text: '1930',
+                    text: FinixContacts.cyberCrimeHelpline,
                     style: GoogleFonts.inter(
                       fontWeight: FontWeight.w600,
+                      color: const Color(0xFF2E75B6),
+                      decoration: TextDecoration.underline,
                     ),
+                    recognizer: TapGestureRecognizer()
+                      ..onTap = () => FinixLauncher.dial(
+                          context, FinixContacts.cyberCrimeHelpline),
                   ),
                   const TextSpan(text: ' )'),
                 ],
@@ -576,7 +588,7 @@ class _ReportFraudScreenState extends State<ReportFraudScreen> {
         ),
         child: Center(
           child: Text(
-            'Submit report',
+            tr('Submit report'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w500,

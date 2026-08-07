@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class SimulationSuccessScreen extends StatelessWidget {
@@ -64,7 +66,7 @@ class SimulationSuccessScreen extends StatelessWidget {
 
                     // Title
                     Text(
-                      'Simulation Completed',
+                      tr('Simulation Completed'),
                       style: GoogleFonts.inter(
                         fontSize: 22,
                         fontWeight: FontWeight.w700,
@@ -129,7 +131,7 @@ class SimulationSuccessScreen extends StatelessWidget {
                           Navigator.pop(context);
                         },
                         child: Text(
-                          'Back to Simulation',
+                          tr('Back to Simulation'),
                           style: GoogleFonts.inter(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
@@ -155,7 +157,7 @@ class SimulationSuccessScreen extends StatelessWidget {
         alignment: Alignment.center,
         children: [
           Text(
-            'Acknowledgement',
+            tr('Acknowledgement'),
             style: GoogleFonts.inter(
               fontSize: 15,
               fontWeight: FontWeight.w600,

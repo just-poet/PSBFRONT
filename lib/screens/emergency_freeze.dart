@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class EmergencyFreezeScreen extends StatefulWidget {
@@ -47,7 +49,7 @@ class _EmergencyFreezeScreenState extends State<EmergencyFreezeScreen> {
 
                     // Title (Figma node 640:4750)
                     Text(
-                      'Emergency Freeze',
+                      tr('Emergency Freeze'),
                       style: GoogleFonts.fraunces(
                         fontSize: 28,
                         fontWeight: FontWeight.w400,
@@ -59,7 +61,7 @@ class _EmergencyFreezeScreenState extends State<EmergencyFreezeScreen> {
 
                     // Subtitle (Figma node 640:4753)
                     Text(
-                      'This will instantly halt all outgoing transactions\nacross every linked account.',
+                      tr('This will instantly halt all outgoing transactions\nacross every linked account.'),
                       textAlign: TextAlign.center,
                       style: GoogleFonts.inter(
                         fontSize: 14,
@@ -82,7 +84,7 @@ class _EmergencyFreezeScreenState extends State<EmergencyFreezeScreen> {
                         children: [
                           // Header label
                           Text(
-                            'WHAT HAPPENS WHEN YOU FREEZE',
+                            tr('WHAT HAPPENS WHEN YOU FREEZE'),
                             style: GoogleFonts.inter(
                               fontSize: 11,
                               fontWeight: FontWeight.w600,
@@ -154,7 +156,7 @@ class _EmergencyFreezeScreenState extends State<EmergencyFreezeScreen> {
                     child: Padding(
                       padding: const EdgeInsets.symmetric(vertical: 10.0),
                       child: Text(
-                        'Cancel — keep accounts active',
+                        tr('Cancel — keep accounts active'),
                         style: GoogleFonts.inter(
                           fontSize: 13,
                           fontWeight: FontWeight.w500,
@@ -315,7 +317,7 @@ class _SlideToFreezeButtonState extends State<SlideToFreezeButton> with SingleTi
                       ),
                     ),
                     Text(
-                      'SLIDE TO FREEZE ALL',
+                      tr('SLIDE TO FREEZE ALL'),
                       style: GoogleFonts.inter(
                         fontSize: 13,
                         color: Colors.white,

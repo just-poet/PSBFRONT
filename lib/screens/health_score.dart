@@ -1,10 +1,107 @@
 import 'dart:math' as math;
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+import '../services/api_service.dart';
+import '../services/health_band.dart';
 import 'smooth_route.dart';
 
-class HealthScoreScreen extends StatelessWidget {
+class HealthScoreScreen extends StatefulWidget {
   const HealthScoreScreen({super.key});
+
+  @override
+  State<HealthScoreScreen> createState() => _HealthScoreScreenState();
+}
+
+class _HealthScoreScreenState extends State<HealthScoreScreen> {
+  // /v1/health-score/pillars returns the same seven pillars this screen used to
+  // hardcode, with the customer's real scores and an explanation per pillar.
+  // The old copy ("14% of monthly income", "term life (Rs 1 Cr)") was fixed
+  // narrative that contradicted the data for every user but the mock one.
+  int _overall = 0;
+  String _band = '';
+  List<Map<String, dynamic>> _pillars = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final score = await ApiService.instance.getHealthScore();
+    if (!mounted) return;
+    setState(() {
+      _overall = ((score['score300To900'] as num?) ??
+              (score['overall_score'] as num?) ??
+              0)
+          .round();
+      _band = (score['band'] ?? '').toString();
+      _pillars =
+          ((score['pillars'] as List?) ?? []).cast<Map<String, dynamic>>();
+      _loading = false;
+    });
+  }
+
+  /// The backend names pillars in PascalCase; these are the labels the design
+  /// uses, kept in the same order the API returns them.
+  static Map<String, ({String title, String subtitle, IconData icon})>
+      _pillarMeta = {
+    'Liquidity': (
+      title: 'Liquidity',
+      subtitle: 'Cash on hand vs monthly expenses',
+      icon: Icons.opacity_outlined
+    ),
+    'DebtHealth': (
+      title: 'Debt Health',
+      subtitle: 'Debt-to-income ratio',
+      icon: Icons.credit_card_outlined
+    ),
+    'SavingsBehaviour': (
+      title: 'Savings',
+      subtitle: 'Monthly saving rate',
+      icon: Icons.home_outlined
+    ),
+    'InvestmentQuality': (
+      title: tr('Investments'),
+      subtitle: 'Portfolio diversification',
+      icon: Icons.trending_up_outlined
+    ),
+    'ProtectionCoverage': (
+      title: tr('Protection'),
+      subtitle: 'Insurance coverage',
+      icon: Icons.shield_outlined
+    ),
+    'GoalAlignment': (
+      title: tr('Goals'),
+      subtitle: 'Progress vs targets',
+      icon: Icons.track_changes_outlined
+    ),
+    'FinancialBehaviour': (
+      title: 'Behaviour',
+      subtitle: 'Spending consistency',
+      icon: Icons.person_outline
+    ),
+  };
+
+  /// The API grades the overall score into a band; the gauge follows it rather
+  /// than being permanently green.
+  /// Shared with the dashboard card, so the two cannot disagree about which
+  /// band a score falls in.
+  HealthBand get band => HealthBand.fromApi(_band, _overall);
+
+  Color get bandColour => band.colour;
+
+  String get bandLabel => tr(band.label);
+
+  static Color colourFor(int score) {
+    if (score >= 75) return const Color(0xFF16A34A);
+    if (score >= 55) return const Color(0xFFF59E0B);
+    return const Color(0xFFDC2626);
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -47,145 +144,42 @@ class HealthScoreScreen extends StatelessWidget {
                       padding: const EdgeInsets.symmetric(horizontal: 20.0),
                       child: Column(
                         children: [
-                          _buildPillarCard(
-                            icon: Icons.opacity_outlined,
-                            title: 'Liquidity',
-                            subtitle: 'Cash on hand vs monthly expenses',
-                            score: 85,
-                            progressColor: const Color(0xFF16A34A),
-                            descriptionSpans: [
-                              const TextSpan(text: 'You have '),
-                              TextSpan(
-                                text: '6 months',
-                                style: GoogleFonts.inter(
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF0B2545),
-                                ),
-                              ),
-                              const TextSpan(text: ' of expenses covered in your emergency fund. Strong cushion.'),
+                          if (_loading)
+                            const Padding(
+                              padding: EdgeInsets.symmetric(vertical: 32),
+                              child: Center(child: CircularProgressIndicator()),
+                            )
+                          else
+                            for (var i = 0; i < _pillars.length; i++) ...[
+                              if (i > 0) const SizedBox(height: 12),
+                              Builder(builder: (context) {
+                                final pillar = _pillars[i];
+                                final name = (pillar['name'] ?? '').toString();
+                                final meta = _pillarMeta[name];
+                                final score =
+                                    ((pillar['score'] as num?) ?? 0).round();
+                                final why =
+                                    (pillar['xai_explanation'] ?? '').toString();
+                                final weight =
+                                    ((pillar['weight'] as num?) ?? 0) * 100;
+                                return _buildPillarCard(
+                                  icon: meta?.icon ?? Icons.insights_outlined,
+                                  title: meta?.title ?? name,
+                                  subtitle: meta?.subtitle ??
+                                      '${weight.round()}% of your score',
+                                  score: score,
+                                  progressColor: colourFor(score),
+                                  descriptionSpans: [
+                                    TextSpan(
+                                      text: why.isNotEmpty
+                                          ? why
+                                          : 'Contributes '
+                                              '${weight.round()}% of your overall score.',
+                                    ),
+                                  ],
+                                );
+                              }),
                             ],
-                          ),
-                          const SizedBox(height: 12),
-                          _buildPillarCard(
-                            icon: Icons.credit_card_outlined,
-                            title: 'Debt Health',
-                            subtitle: 'Debt-to-income ratio',
-                            score: 92,
-                            progressColor: const Color(0xFF16A34A),
-                            descriptionSpans: [
-                              const TextSpan(text: 'Your debt is '),
-                              TextSpan(
-                                text: '14% of monthly income',
-                                style: GoogleFonts.inter(
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF0B2545),
-                                ),
-                              ),
-                              const TextSpan(text: ' — well below the 35% threshold.'),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          _buildPillarCard(
-                            icon: Icons.home_outlined,
-                            title: 'Savings',
-                            subtitle: 'Monthly saving rate',
-                            score: 78,
-                            progressColor: const Color(0xFF16A34A),
-                            descriptionSpans: [
-                              const TextSpan(text: 'You save '),
-                              TextSpan(
-                                text: '22% of your income',
-                                style: GoogleFonts.inter(
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF0B2545),
-                                ),
-                              ),
-                              const TextSpan(text: '. Healthy, slightly below the 25% recommended.'),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          _buildPillarCard(
-                            icon: Icons.trending_up_outlined,
-                            title: 'Investments',
-                            subtitle: 'Portfolio diversification',
-                            score: 75,
-                            progressColor: const Color(0xFF16A34A),
-                            descriptionSpans: [
-                              const TextSpan(text: 'Well diversified across '),
-                              TextSpan(
-                                text: '5 asset classes',
-                                style: GoogleFonts.inter(
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF0B2545),
-                                ),
-                              ),
-                              const TextSpan(text: '. Consider adding international exposure.'),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          _buildPillarCard(
-                            icon: Icons.shield_outlined,
-                            title: 'Protection',
-                            subtitle: 'Insurance coverage',
-                            score: 88,
-                            progressColor: const Color(0xFF16A34A),
-                            descriptionSpans: [
-                              const TextSpan(text: 'Both '),
-                              TextSpan(
-                                text: 'term life (₹1 Cr)',
-                                style: GoogleFonts.inter(
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF0B2545),
-                                ),
-                              ),
-                              const TextSpan(text: ' and '),
-                              TextSpan(
-                                text: 'health (₹10 L)',
-                                style: GoogleFonts.inter(
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF0B2545),
-                                ),
-                              ),
-                              const TextSpan(text: ' insurance are active.'),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          _buildPillarCard(
-                            icon: Icons.track_changes_outlined,
-                            title: 'Goals',
-                            subtitle: 'Progress vs targets',
-                            score: 68,
-                            progressColor: const Color(0xFFF59E0B),
-                            descriptionSpans: [
-                              TextSpan(
-                                text: '2 of 4 goals',
-                                style: GoogleFonts.inter(
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF0B2545),
-                                ),
-                              ),
-                              const TextSpan(text: ' on track. Home Down Payment is 3 months behind — needs catch-up.'),
-                            ],
-                          ),
-                          const SizedBox(height: 12),
-                          _buildPillarCard(
-                            icon: Icons.person_outline,
-                            title: 'Behaviour',
-                            subtitle: 'Spending consistency',
-                            score: 82,
-                            progressColor: const Color(0xFF16A34A),
-                            descriptionSpans: [
-                              const TextSpan(text: 'Your spending stays within '),
-                              TextSpan(
-                                text: '±8%',
-                                style: GoogleFonts.inter(
-                                  fontWeight: FontWeight.bold,
-                                  color: const Color(0xFF0B2545),
-                                ),
-                              ),
-                              const TextSpan(text: ' of your monthly average. Consistent pattern.'),
-                            ],
-                          ),
                           const SizedBox(height: 24),
                         ],
                       ),
@@ -232,7 +226,7 @@ class HealthScoreScreen extends StatelessWidget {
           
           // Screen Title
           Text(
-            'Health Score',
+            tr('Health Score'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -286,9 +280,9 @@ class HealthScoreScreen extends StatelessWidget {
                 CustomPaint(
                   size: const Size(180, 180),
                   painter: HealthScoreGaugePainter(
-                    score: 782,
+                    score: _overall.toDouble(),
                     maxScore: 900,
-                    progressColor: const Color(0xFF16A34A),
+                    progressColor: bandColour,
                     trackColor: const Color(0xFFEEF2F6),
                   ),
                 ),
@@ -296,11 +290,11 @@ class HealthScoreScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.center,
                   children: [
                     Text(
-                      '782',
+                      _loading ? '—' : '$_overall',
                       style: GoogleFonts.fraunces(
                         fontSize: 52,
                         fontWeight: FontWeight.w400,
-                        color: const Color(0xFF16A34A),
+                        color: bandColour,
                         letterSpacing: -1.56,
                       ),
                     ),
@@ -328,7 +322,7 @@ class HealthScoreScreen extends StatelessWidget {
               borderRadius: BorderRadius.circular(999),
             ),
             child: Text(
-              '↑ 24 from last month',
+              _loading ? 'Loading…' : bandLabel,
               style: GoogleFonts.inter(
                 fontSize: 11,
                 fontWeight: FontWeight.normal,
@@ -506,7 +500,7 @@ class HealthScoreScreen extends StatelessWidget {
                   mainAxisAlignment: MainAxisAlignment.spaceBetween,
                   children: [
                     Text(
-                      'About Health Score',
+                      tr('About Health Score'),
                       style: GoogleFonts.inter(
                         fontSize: 18,
                         fontWeight: FontWeight.w600,
@@ -562,7 +556,7 @@ class HealthScoreScreen extends StatelessWidget {
                     ),
                     onPressed: () => Navigator.pop(context),
                     child: Text(
-                      'Got it',
+                      tr('Got it'),
                       style: GoogleFonts.inter(
                         fontSize: 14,
                         fontWeight: FontWeight.w500,

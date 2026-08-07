@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'ekyc.dart';
@@ -14,10 +16,55 @@ class PersonalDetailsScreen extends StatefulWidget {
 }
 
 class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
-  // Local state to make contact details editable
-  String _mobileNumber = '+91 98●●● ●●210';
-  String _emailAddress = 'venkat.a@finix.in';
-  String _addressText = 'B-402, Ashiana Greens\nDadri, Uttar Pradesh 203207';
+  // Identity and contact details come from /v1/kyc/profile and
+  // /v1/settings/profile. Every field on this screen used to be a literal —
+  // "Venkat Avva", DOB 18/09/2002, a Uttar Pradesh address — so it described
+  // one person no matter who signed in.
+  Map<String, dynamic> _kyc = const {};
+  bool _loading = true;
+
+  String _mobileNumber = '';
+  String _emailAddress = '';
+  String _addressText = '';
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final results = await Future.wait([
+      ApiService.instance.getKycProfile(),
+      ApiService.instance.getProfile(),
+    ]);
+    if (!mounted) return;
+    final kyc = results[0];
+    final profile = results[1];
+    setState(() {
+      _kyc = kyc;
+      _mobileNumber = (kyc['mobileNumber'] ?? profile['mobile'] ?? '').toString();
+      _emailAddress = (kyc['email'] ?? profile['email'] ?? '').toString();
+      final comm = (kyc['communicationAddress'] ?? '').toString();
+      _addressText =
+          comm.isNotEmpty ? comm : (kyc['permanentAddress'] ?? '').toString();
+      _loading = false;
+    });
+  }
+
+  String _field(String key, {String fallback = 'Not on record'}) {
+    final v = (_kyc[key] ?? '').toString();
+    return v.isEmpty ? fallback : v;
+  }
+
+  /// KYC dates arrive as ISO timestamps; the design shows dd/MM/yyyy.
+  static String _asDate(dynamic iso, {String fallback = '--'}) {
+    final d = DateTime.tryParse((iso ?? '').toString());
+    if (d == null) return fallback;
+    final dd = d.day.toString().padLeft(2, '0');
+    final mm = d.month.toString().padLeft(2, '0');
+    return '$dd/$mm/${d.year}';
+  }
 
   void _showEditDialog({
     required String title,
@@ -62,7 +109,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: Text(
-                'Cancel',
+                tr('Cancel'),
                 style: GoogleFonts.inter(
                   color: const Color(0xFF475569),
                   fontWeight: FontWeight.w600,
@@ -87,7 +134,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                 shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(8)),
               ),
               child: Text(
-                'Save',
+                tr('Save'),
                 style: GoogleFonts.inter(fontWeight: FontWeight.w600),
               ),
             ),
@@ -196,7 +243,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
           Expanded(
             child: Center(
               child: Text(
-                'Personal details',
+                tr('Personal details'),
                 style: GoogleFonts.inter(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -295,7 +342,10 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                 ),
                 const SizedBox(height: 3),
                 Text(
-                  'Full KYC · verified 14/03/2025',
+                  _loading
+                      ? 'Loading your KYC…'
+                      : '${_field('kycStatus', fallback: 'KYC pending') == 'verified' ? 'Full KYC' : 'KYC ${_field('kycStatus', fallback: 'pending')}'}'
+                          ' · ${_asDate(_kyc['kycSubmissionDate'])}',
                   style: GoogleFonts.inter(
                     fontSize: 11.5,
                     fontWeight: FontWeight.w400,
@@ -322,15 +372,27 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
       clipBehavior: Clip.antiAlias,
       child: Column(
         children: [
-          _buildReadOnlyRow('Full name', 'Venkat Avva'),
+          _buildReadOnlyRow(
+            'Full name',
+            _field('fullName',
+                fallback: ApiService.instance.userName.value ?? 'Signed out'),
+          ),
           _buildDivider(),
-          _buildReadOnlyRow('Date of birth', '18/09/2002', isMono: true),
+          _buildReadOnlyRow(
+            'Date of birth',
+            _kyc['dateOfBirth'] == null ||
+                    _kyc['dateOfBirth'].toString().isEmpty
+                ? 'Not on record'
+                : _asDate(_kyc['dateOfBirth'],
+                    fallback: _kyc['dateOfBirth'].toString()),
+            isMono: true,
+          ),
           _buildDivider(),
-          _buildReadOnlyRow('PAN', 'ABCDE ●●●● F', isMono: true),
+          _buildReadOnlyRow('PAN', _field('panMasked'), isMono: true),
           _buildDivider(),
           _buildReadOnlyRow(
             'Aadhaar',
-            'XXXX XXXX 1234',
+            _field('aadhaarMaskedOrHash'),
             isMono: true,
             footnote: 'Masked as required by UIDAI. Full number is never stored.',
           ),
@@ -744,7 +806,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'eKYC completed',
+                        tr('eKYC completed'),
                         style: GoogleFonts.inter(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -793,7 +855,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'Last profile change',
+                        tr('Last profile change'),
                         style: GoogleFonts.inter(
                           fontSize: 14,
                           fontWeight: FontWeight.w600,
@@ -824,7 +886,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
                     );
                   },
                   child: Text(
-                    'Log',
+                    tr('Log'),
                     style: GoogleFonts.inter(
                       fontSize: 12.5,
                       fontWeight: FontWeight.w600,
@@ -871,7 +933,7 @@ class _PersonalDetailsScreenState extends State<PersonalDetailsScreen> {
             ),
             const SizedBox(width: 8),
             Text(
-              'Request a correction',
+              tr('Request a correction'),
               style: GoogleFonts.inter(
                 fontSize: 15,
                 fontWeight: FontWeight.w600,

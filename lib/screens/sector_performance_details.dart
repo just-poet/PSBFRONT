@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class SectorPerformanceDetailsScreen extends StatefulWidget {
@@ -182,7 +184,7 @@ class _SectorPerformanceDetailsScreenState extends State<SectorPerformanceDetail
                     )
                   : Center(
                       child: Text(
-                        'Sector Performance',
+                        tr('Sector Performance'),
                         style: GoogleFonts.inter(
                           fontSize: 16,
                           fontWeight: FontWeight.w500,

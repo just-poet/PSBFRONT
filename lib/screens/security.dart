@@ -1,6 +1,8 @@
 import 'dart:async';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'bottom_nav_bar.dart';
 import 'audit_logs.dart';
@@ -8,6 +10,9 @@ import 'security_events.dart';
 import 'emergency_freeze.dart';
 import '../main.dart' show navigatorKey;
 import '../services/api_service.dart';
+import '../services/notification_service.dart';
+import '../services/hardware_service.dart';
+import '../services/sms_service.dart';
 
 class SecurityScreen extends StatefulWidget {
   const SecurityScreen({super.key});
@@ -17,6 +22,25 @@ class SecurityScreen extends StatefulWidget {
 }
 
 class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProviderStateMixin {
+  /// Messages actually read and scanned on this device. Both "SMS Detector"
+  /// labels used to read a fixed "23 scanned today" no matter what was in the
+  /// inbox — or whether permission had even been granted.
+  int _smsScanned = 0;
+  bool _smsScanKnown = false;
+
+  /// Called by the scan sheet once it knows the real number.
+  void _reportSmsScanned(int count) {
+    if (!mounted) return;
+    setState(() {
+      _smsScanned = count;
+      _smsScanKnown = true;
+    });
+  }
+
+  String get _smsSubtitle => _smsScanKnown
+      ? '${tr('Active')} · $_smsScanned ${tr('scanned')}'
+      : tr('Active · tap to scan');
+
   // Toggle states for active protections
   bool _biometricLogin = true;           // worth 20 points
   bool _transactionRiskEngine = true;    // worth 25 points
@@ -81,13 +105,47 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
     }
   }
 
+  /// Confirms the customer's identity before a security action.
+  ///
+  /// Freezing halts every outgoing payment and unfreezing lifts that
+  /// protection, so neither should be possible for someone who has merely
+  /// picked up an unlocked phone. Returns false only when the device could ask
+  /// and the person failed or cancelled — where no sensor exists (emulator,
+  /// desktop, nothing enrolled) the action is allowed through, since blocking
+  /// it would make the freeze unreachable on those devices.
+  Future<bool> _confirmWithBiometric(String reason) async {
+    final outcome = await FinixBiometric.verify(reason: reason);
+    if (outcome == BiometricOutcome.failed) {
+      if (!mounted) return false;
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(
+          content: Text(tr('Fingerprint not recognised — nothing was changed.')),
+          backgroundColor: Color(0xFF475569),
+        ),
+      );
+      return false;
+    }
+    return true;
+  }
+
   void _triggerEmergencyFreeze() async {
+    if (!await _confirmWithBiometric(
+        'Confirm your fingerprint to freeze the account')) {
+      return;
+    }
+    if (!mounted) return;
+
     setState(() {
       _isFrozen = true;
     });
     try {
       await ApiService.instance.emergencyFreeze("User requested freeze from security dashboard");
     } catch (_) {}
+
+    // Raise the app-wide lock. Without this the account was frozen on the
+    // server but the customer could carry on browsing, which is not a freeze.
+    ApiService.instance.accountFrozen.value = true;
+    FinixNotifications.instance.accountFrozen();
     
     ScaffoldMessenger.of(context).showSnackBar(
       const SnackBar(
@@ -99,36 +157,31 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
   }
 
   void _unlockAccount() async {
+    // Lifting the freeze is the more dangerous direction: it restores the
+    // ability to move money.
+    if (!await _confirmWithBiometric(
+        'Confirm your fingerprint to unfreeze the account')) {
+      return;
+    }
+    if (!mounted) return;
+
     setState(() {
       _isFrozen = false;
     });
     try {
       await ApiService.instance.unfreeze();
     } catch (_) {}
+    ApiService.instance.accountFrozen.value = false;
+    FinixNotifications.instance.accountUnfrozen();
     
     ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('Account unlocked successfully.'),
+      SnackBar(
+        content: Text(tr('Account unlocked successfully.')),
         backgroundColor: Color(0xFF16A34A),
       ),
     );
   }
 
-  void _enableAllProtections() {
-    setState(() {
-      _biometricLogin = true;
-      _transactionRiskEngine = true;
-      _coercedDetection = true;
-      _slowMode = true;
-      _twoPersonRule = true;
-    });
-    ScaffoldMessenger.of(context).showSnackBar(
-      const SnackBar(
-        content: Text('All security protections activated!'),
-        backgroundColor: Color(0xFF16A34A),
-      ),
-    );
-  }
 
   // --- POPUP DETAILS SHEETS ---
   
@@ -166,7 +219,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
               ),
               const SizedBox(height: 16),
               Text(
-                'Activate Emergency Freeze?',
+                tr('Activate Emergency Freeze?'),
                 style: GoogleFonts.inter(
                   fontSize: 18,
                   fontWeight: FontWeight.bold,
@@ -197,7 +250,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                       ),
                       onPressed: () => Navigator.pop(context),
                       child: Text(
-                        'Cancel',
+                        tr('Cancel'),
                         style: GoogleFonts.inter(
                           fontWeight: FontWeight.bold,
                           color: const Color(0xFF64748B),
@@ -222,7 +275,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                         _triggerEmergencyFreeze();
                       },
                       child: Text(
-                        'Freeze Account',
+                        tr('Freeze Account'),
                         style: GoogleFonts.inter(
                           fontWeight: FontWeight.bold,
                         ),
@@ -269,7 +322,15 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                 ),
               ),
               padding: const EdgeInsets.all(24),
-              child: Column(
+              // Capped and scrollable. The sheet previously laid its content
+              // out in an unbounded Column, so with more than three or four
+              // messages the list ran off the bottom with no way to reach it.
+              constraints: BoxConstraints(
+                maxHeight: MediaQuery.of(context).size.height * 0.85,
+              ),
+              child: SingleChildScrollView(
+                physics: const BouncingScrollPhysics(),
+                child: Column(
                 mainAxisSize: MainAxisSize.min,
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
@@ -291,7 +352,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                         crossAxisAlignment: CrossAxisAlignment.start,
                         children: [
                           Text(
-                            'SMS Detector',
+                            tr('SMS Detector'),
                             style: GoogleFonts.inter(
                               fontSize: 18,
                               fontWeight: FontWeight.bold,
@@ -300,7 +361,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                           ),
                           const SizedBox(height: 4),
                           Text(
-                            'Active • 23 scanned today',
+                            _smsSubtitle,
                             style: GoogleFonts.inter(
                               fontSize: 12,
                               color: const Color(0xFF16A34A),
@@ -320,15 +381,15 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                         ),
                         onPressed: () {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(
-                              content: Text('Checking latest inbox messages locally...'),
+                            SnackBar(
+                              content: Text(tr('Checking latest inbox messages locally...')),
                               duration: Duration(seconds: 1),
                             ),
                           );
                         },
                         icon: const Icon(Icons.sync_rounded, size: 16),
                         label: Text(
-                          'Scan now',
+                          tr('Scan now'),
                           style: GoogleFonts.inter(fontSize: 12, fontWeight: FontWeight.bold),
                         ),
                       ),
@@ -336,7 +397,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                   ),
                   const SizedBox(height: 24),
                   Text(
-                    'RECENT SCANS',
+                    tr('RECENT SCANS'),
                     style: GoogleFonts.inter(
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
@@ -345,28 +406,17 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                     ),
                   ),
                   const SizedBox(height: 12),
-                  _buildSmsScanItem(
-                    sender: 'VK-SBI4UP',
-                    body: 'URGENT: Your SBI account is blocked. Verify KYC here: sbi-kyc-check.com',
-                    status: 'PHISHING BLOCKED',
-                    isDanger: true,
-                    time: '11:34 PM',
-                  ),
-                  _buildSmsScanItem(
-                    sender: 'AX-AXISBK',
-                    body: 'OTP for txn of INR 10,000.00 is 482910. Do not share with anyone.',
-                    status: 'CLEAN',
-                    isDanger: false,
-                    time: '8:45 PM',
-                  ),
-                  _buildSmsScanItem(
-                    sender: 'AD-ZOMATO',
-                    body: 'Your order has been delivered! Enjoy your meal.',
-                    status: 'CLEAN',
-                    isDanger: false,
-                    time: '2:15 PM',
+                  // Real inbox messages, each scanned by the backend. This
+                  // was three invented texts — a fake SBI phishing message, an
+                  // Axis OTP and a Zomato delivery notice — shown identically
+                  // on every device, which demonstrated nothing about what the
+                  // customer had actually received.
+                  _SmsScanList(
+                    buildItem: _buildSmsScanItem,
+                    onScanned: _reportSmsScanned,
                   ),
                 ],
+                ),
               ),
             );
           },
@@ -409,7 +459,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
               const Icon(Icons.verified_user_rounded, color: Color(0xFF0B2545)),
               const SizedBox(width: 10),
               Text(
-                'FINIX Security Suite',
+                tr('FINIX Security Suite'),
                 style: GoogleFonts.inter(
                   fontWeight: FontWeight.bold,
                   color: const Color(0xFF0B2545),
@@ -432,11 +482,11 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                 ),
                 const SizedBox(height: 16),
                 _buildInfoSection(
-                  title: 'Emergency Freeze',
+                  title: tr('Emergency Freeze'),
                   description: 'Instantly halt all outgoing payments if you suspect fraud. Can be deactivated securely with biometrics.',
                 ),
                 _buildInfoSection(
-                  title: 'SMS Detector',
+                  title: tr('SMS Detector'),
                   description: 'Scans incoming text messages locally to automatically flag and block potential UPI/banking phishing links.',
                 ),
                 _buildInfoSection(
@@ -454,7 +504,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
             TextButton(
               onPressed: () => Navigator.pop(context),
               child: Text(
-                'Close',
+                tr('Close'),
                 style: GoogleFonts.inter(
                   fontWeight: FontWeight.bold,
                   color: const Color(0xFF2E75B6),
@@ -604,7 +654,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
           ),
           // Center title
           Text(
-            'Security',
+            tr('Security'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -695,7 +745,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                     crossAxisAlignment: CrossAxisAlignment.start,
                     children: [
                       Text(
-                        'YOUR ACCOUNT',
+                        tr('YOUR ACCOUNT'),
                         style: GoogleFonts.inter(
                           fontSize: 10,
                           fontWeight: FontWeight.w600,
@@ -717,7 +767,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                       Row(
                         children: [
                           Text(
-                            'Protection score · ',
+                            tr('Protection score · '),
                             style: GoogleFonts.inter(
                               fontSize: 13,
                               color: Colors.white.withOpacity(0.88),
@@ -757,7 +807,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                   child: Row(
                     children: [
                       Text(
-                        'Threats blocked · ',
+                        tr('Threats blocked · '),
                         style: GoogleFonts.inter(
                           fontSize: 10,
                           color: Colors.white.withOpacity(0.7),
@@ -777,7 +827,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                 Row(
                   children: [
                     Text(
-                      'Last scan · ',
+                      tr('Last scan · '),
                       style: GoogleFonts.inter(
                         fontSize: 10,
                         color: Colors.white.withOpacity(0.7),
@@ -1028,7 +1078,13 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
     );
   }
 
-  Widget _buildSectionHeader({required String title, required String actionText, required VoidCallback onAction}) {
+  /// [actionText] and [onAction] are optional: a section can stand without a
+  /// trailing link.
+  Widget _buildSectionHeader({
+    required String title,
+    String? actionText,
+    VoidCallback? onAction,
+  }) {
     return Row(
       mainAxisAlignment: MainAxisAlignment.spaceBetween,
       children: [
@@ -1041,17 +1097,18 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
             letterSpacing: -0.16,
           ),
         ),
-        GestureDetector(
-          onTap: onAction,
-          child: Text(
-            actionText,
-            style: GoogleFonts.inter(
-              fontSize: 12,
-              fontWeight: FontWeight.w600,
-              color: const Color(0xFF2E75B6),
+        if (actionText != null)
+          GestureDetector(
+            onTap: onAction,
+            child: Text(
+              actionText,
+              style: GoogleFonts.inter(
+                fontSize: 12,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF2E75B6),
+              ),
             ),
           ),
-        ),
       ],
     );
   }
@@ -1085,7 +1142,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
           ),
           const SizedBox(height: 28),
           Text(
-            'ACCOUNT FROZEN',
+            tr('ACCOUNT FROZEN'),
             style: GoogleFonts.inter(
               fontSize: 22,
               fontWeight: FontWeight.bold,
@@ -1117,7 +1174,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
             onPressed: _unlockAccount,
             icon: const Icon(Icons.fingerprint_rounded),
             label: Text(
-              'Unlock with Biometrics',
+              tr('Unlock with Biometrics'),
               style: GoogleFonts.inter(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -1155,7 +1212,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
 
                         // Section Title: Protection tools
                         Text(
-                          'Protection tools',
+                          tr('Protection tools'),
                           style: GoogleFonts.inter(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
@@ -1171,7 +1228,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                           children: [
                             Expanded(
                               child: _buildToolCard(
-                                title: 'Emergency Freeze',
+                                title: tr('Emergency Freeze'),
                                 subtitle: 'Halt all outgoing payments instantly',
                                 icon: Icons.lock_outline_rounded,
                                 iconColor: const Color(0xFFDC2626),
@@ -1191,8 +1248,8 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                             const SizedBox(width: 10),
                             Expanded(
                               child: _buildToolCard(
-                                title: 'SMS Detector',
-                                subtitle: 'Active · 23 scanned today',
+                                title: tr('SMS Detector'),
+                                subtitle: _smsSubtitle,
                                 icon: Icons.chat_bubble_outline_rounded,
                                 iconColor: const Color(0xFF16A34A),
                                 iconBgColor: const Color(0xFF16A34A).withOpacity(0.1),
@@ -1207,7 +1264,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                           children: [
                             Expanded(
                               child: _buildToolCard(
-                                title: 'Audit Logs',
+                                title: tr('Audit Logs'),
                                 subtitle: 'Merkle-verified · 28 events',
                                 icon: Icons.description_outlined,
                                 iconColor: const Color(0xFF2E75B6),
@@ -1223,10 +1280,11 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                         const SizedBox(height: 24),
 
                         // Section: Active protections
+                        // "Manage →" removed: it turned every protection on at
+                        // once, which is not what "manage" means, and the
+                        // toggles below already do the job.
                         _buildSectionHeader(
                           title: 'Active protections',
-                          actionText: 'Manage →',
-                          onAction: _enableAllProtections,
                         ),
                         const SizedBox(height: 10),
 
@@ -1247,7 +1305,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                           child: Column(
                             children: [
                               _buildActiveCheckItem(
-                                title: 'Biometric login',
+                                title: tr('Biometric login'),
                                 subtitle: _biometricLogin 
                                     ? 'Face ID · enrolled 14 days ago' 
                                     : 'Face ID disabled',
@@ -1313,7 +1371,7 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
                           iconBgColor: const Color(0xFFF59E0B).withOpacity(0.1),
                         ),
                         _buildEventCard(
-                          title: 'Biometric login',
+                          title: tr('Biometric login'),
                           subtitle: 'Face ID · iPhone 14 Pro · Mumbai',
                           time: '09:41 AM',
                           icon: Icons.face_unlock_rounded,
@@ -1332,6 +1390,221 @@ class _SecurityScreenState extends State<SecurityScreen> with SingleTickerProvid
             if (_isFrozen) _buildFreezeOverlay(),
           ],
         ),
+      ),
+    );
+  }
+}
+
+/// Reads the device inbox and shows each message with the backend's verdict.
+///
+/// Takes the row builder from the security screen so the sheet keeps its
+/// existing look rather than growing a second, slightly different card style.
+class _SmsScanList extends StatefulWidget {
+  const _SmsScanList({required this.buildItem, this.onScanned});
+
+  /// Reports how many messages were actually scanned, so the screen behind can
+  /// show a real number instead of a fixed one.
+  final void Function(int count)? onScanned;
+
+  final Widget Function({
+    required String sender,
+    required String body,
+    required String status,
+    required bool isDanger,
+    required String time,
+  }) buildItem;
+
+  @override
+  State<_SmsScanList> createState() => _SmsScanListState();
+}
+
+class _SmsScanListState extends State<_SmsScanList> {
+  SmsAccess _access = SmsAccess.denied;
+  List<DeviceSms> _messages = const [];
+  int _skippedOtp = 0;
+  final Map<String, Map<String, dynamic>> _verdicts = {};
+  bool _loading = true;
+
+  /// How many recent messages are scanned. Each scan is a round trip, so this
+  /// is deliberately small — the point is a quick read on recent exposure, not
+  /// an audit of the whole inbox.
+  static const _scanLimit = 8;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final result = await FinixSms.readInbox(limit: _scanLimit);
+    if (!mounted) return;
+    setState(() {
+      _access = result.access;
+      _messages = result.messages;
+      _skippedOtp = result.skippedOtp;
+      _loading = false;
+    });
+    widget.onScanned?.call(result.messages.length);
+
+    // Scanned one at a time: the endpoint takes a single message, and firing
+    // eight concurrent requests through a tunnel is a good way to get rate
+    // limited.
+    for (final message in result.messages) {
+      final verdict = await ApiService.instance.scanSms(
+        sender: message.sender,
+        message: message.body,
+      );
+      if (!mounted) return;
+      setState(() => _verdicts[message.id] = verdict);
+    }
+  }
+
+  static String _clock(DateTime? at) {
+    if (at == null) return '';
+    final hour = at.hour % 12 == 0 ? 12 : at.hour % 12;
+    final minute = at.minute.toString().padLeft(2, '0');
+    return '$hour:$minute ${at.hour < 12 ? 'AM' : 'PM'}';
+  }
+
+  @override
+  Widget build(BuildContext context) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 28),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+
+    if (_access != SmsAccess.granted) {
+      return _buildAccessNotice();
+    }
+
+    if (_messages.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 24),
+        child: Text(
+          tr('No messages in your inbox to scan.'),
+          style: GoogleFonts.inter(fontSize: 12.5, color: const Color(0xFF64748B)),
+        ),
+      );
+    }
+
+    return Column(
+      crossAxisAlignment: CrossAxisAlignment.start,
+      children: [
+        // Says what was actually looked at. The header above used to read a
+        // fixed "23 scanned today" regardless of the inbox.
+        Padding(
+          padding: const EdgeInsets.only(bottom: 10),
+          child: Text(
+            _skippedOtp > 0
+                ? '${_messages.length} scanned · $_skippedOtp OTP skipped'
+                : '${_messages.length} scanned',
+            style: GoogleFonts.inter(
+              fontSize: 11,
+              color: const Color(0xFF94A3B8),
+            ),
+          ),
+        ),
+        for (final message in _messages)
+          Builder(builder: (context) {
+            final verdict = _verdicts[message.id];
+            // Absent verdict means the scan has not come back (or failed).
+            // Reported as "scanning" rather than a premature all-clear.
+            final badge = (verdict?['badge'] ?? '').toString();
+            final danger = badge == 'red';
+            final status = switch (badge) {
+              'red' => 'PHISHING BLOCKED',
+              'amber' => 'SUSPICIOUS',
+              'green' => 'CLEAN',
+              _ => verdict == null ? 'SCANNING…' : 'NOT SCANNED',
+            };
+            return widget.buildItem(
+              sender: message.sender.isEmpty ? 'Unknown' : message.sender,
+              body: message.body,
+              status: status,
+              isDanger: danger,
+              time: _clock(message.receivedAt),
+            );
+          }),
+      ],
+    );
+  }
+
+  Widget _buildAccessNotice() {
+    final permanent = _access == SmsAccess.permanentlyDenied;
+    final unsupported = _access == SmsAccess.unsupported;
+
+    return Container(
+      width: double.infinity,
+      padding: const EdgeInsets.all(16),
+      decoration: BoxDecoration(
+        color: Colors.white,
+        borderRadius: BorderRadius.circular(14),
+        border: Border.all(color: const Color(0xFFE2E8F0)),
+      ),
+      child: Column(
+        crossAxisAlignment: CrossAxisAlignment.start,
+        children: [
+          Row(
+            children: [
+              const Icon(Icons.sms_outlined, size: 18, color: Color(0xFF64748B)),
+              const SizedBox(width: 8),
+              Text(
+                unsupported ? 'Not available here' : 'Message access needed',
+                style: GoogleFonts.inter(
+                  fontSize: 13,
+                  fontWeight: FontWeight.w600,
+                  color: const Color(0xFF0A1628),
+                ),
+              ),
+            ],
+          ),
+          const SizedBox(height: 8),
+          Text(
+            unsupported
+                ? 'Reading your inbox is only possible on Android.'
+                : 'FINIX scans your recent messages for banking phishing. '
+                    'Messages are read on your device and only the text being '
+                    'checked is sent for scanning.',
+            style: GoogleFonts.inter(
+              fontSize: 12,
+              height: 1.5,
+              color: const Color(0xFF475569),
+            ),
+          ),
+          if (!unsupported) ...[
+            const SizedBox(height: 12),
+            SizedBox(
+              width: double.infinity,
+              child: ElevatedButton(
+                onPressed: () async {
+                  if (permanent) {
+                    await FinixSms.openSettings();
+                    return;
+                  }
+                  setState(() => _loading = true);
+                  await _load();
+                },
+                style: ElevatedButton.styleFrom(
+                  backgroundColor: const Color(0xFF0B2545),
+                  foregroundColor: Colors.white,
+                  shape: RoundedRectangleBorder(
+                    borderRadius: BorderRadius.circular(12),
+                  ),
+                ),
+                child: Text(
+                  permanent ? 'Open app settings' : 'Allow message access',
+                  style: GoogleFonts.inter(
+                    fontSize: 13,
+                    fontWeight: FontWeight.w600,
+                  ),
+                ),
+              ),
+            ),
+          ],
+        ],
       ),
     );
   }

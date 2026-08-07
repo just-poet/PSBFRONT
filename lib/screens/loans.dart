@@ -1,12 +1,110 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+import '../services/api_service.dart';
 import 'loan_statement.dart';
 import 'simulation.dart';
 import '../main.dart';
 
-class LoansScreen extends StatelessWidget {
+class LoansScreen extends StatefulWidget {
   const LoansScreen({super.key});
+
+  @override
+  State<LoansScreen> createState() => _LoansScreenState();
+}
+
+class _LoansScreenState extends State<LoansScreen> {
+  // Loans come from /v1/portfolio/loans. The two cards below were hardcoded to
+  // a PSB home loan and an HDFC vehicle loan, so a customer with different
+  // borrowing — or none — still saw those two.
+  List<Map<String, dynamic>> _loans = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final loans = await ApiService.instance.getLoans();
+    if (!mounted) return;
+    setState(() {
+      _loans = loans;
+      _loading = false;
+    });
+  }
+
+  int get _totalEmiPaise => _loans.fold<int>(
+      0, (sum, l) => sum + ((l['emiPaise'] as num?)?.toInt() ?? 0));
+
+  int get _totalOutstandingPaise => _loans.fold<int>(
+      0, (sum, l) => sum + ((l['outstandingPaise'] as num?)?.toInt() ?? 0));
+
+  int get _longestTenureMonths => _loans.fold<int>(
+      0,
+      (max, l) => ((l['remainingMonths'] as num?)?.toInt() ?? 0) > max
+          ? (l['remainingMonths'] as num).toInt()
+          : max);
+
+  /// EMI-weighted so a large home loan dominates a small personal one.
+  String get _avgRateLabel {
+    if (_loans.isEmpty || _totalEmiPaise == 0) return '--';
+    var weighted = 0.0;
+    for (final l in _loans) {
+      final emi = (l['emiPaise'] as num?)?.toDouble() ?? 0;
+      final rate = (l['interestRate'] as num?)?.toDouble() ?? 0;
+      weighted += emi * rate;
+    }
+    return '${(weighted / _totalEmiPaise).toStringAsFixed(2)}%';
+  }
+
+  static String money(num paise) {
+    final n = (paise / 100).round().abs().toString();
+    if (n.length <= 3) return '₹$n';
+    final last3 = n.substring(n.length - 3);
+    var rest = n.substring(0, n.length - 3);
+    final groups = <String>[];
+    while (rest.length > 2) {
+      groups.insert(0, rest.substring(rest.length - 2));
+      rest = rest.substring(0, rest.length - 2);
+    }
+    if (rest.isNotEmpty) groups.insert(0, rest);
+    return '₹${groups.join(',')},$last3';
+  }
+
+  static IconData iconFor(String loanType) {
+    switch (loanType.toLowerCase()) {
+      case 'home':
+        return Icons.home_outlined;
+      case 'car':
+      case 'vehicle':
+      case 'auto':
+        return Icons.directions_car_outlined;
+      case 'education':
+        return Icons.school_outlined;
+      case 'personal':
+        return Icons.person_outline;
+      default:
+        return Icons.account_balance_outlined;
+    }
+  }
+
+  static String titleFor(String loanType) {
+    if (loanType.isEmpty) return 'Loan';
+    final t = loanType[0].toUpperCase() + loanType.substring(1);
+    return '$t Loan';
+  }
+
+  static String tenureFor(int months) {
+    if (months <= 0) return '--';
+    final y = months ~/ 12;
+    final m = months % 12;
+    return y > 0 ? '${y}y ${m}m' : '${m}m';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -37,7 +135,7 @@ class LoansScreen extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Active loans',
+                          tr('Active loans'),
                           style: GoogleFonts.inter(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
@@ -54,7 +152,7 @@ class LoansScreen extends StatelessWidget {
                             );
                           },
                           child: Text(
-                            'Statements →',
+                            tr('Statements →'),
                             style: GoogleFonts.inter(
                               fontSize: 12.3,
                               fontWeight: FontWeight.w600,
@@ -96,7 +194,7 @@ class LoansScreen extends StatelessWidget {
         children: [
           // Centered Title
           Text(
-            'Loans',
+            tr('Loans'),
             style: GoogleFonts.inter(
               fontSize: 15.66,
               fontWeight: FontWeight.w600,
@@ -199,7 +297,7 @@ class LoansScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'TOTAL OUTSTANDING',
+                    tr('TOTAL OUTSTANDING'),
                     style: GoogleFonts.inter(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
@@ -209,7 +307,7 @@ class LoansScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '₹ 14,82,500',
+                    money(_totalOutstandingPaise),
                     style: GoogleFonts.fraunces(
                       fontSize: 38,
                       fontWeight: FontWeight.w400,
@@ -219,7 +317,10 @@ class LoansScreen extends StatelessWidget {
                   ),
                   const SizedBox(height: 6),
                   Text(
-                    '2 active loans · Next EMI 05 Jul',
+                    _loading
+                        ? 'Loading your loans…'
+                        : '${_loans.length} active '
+                            '${_loans.length == 1 ? 'loan' : 'loans'}',
                     style: GoogleFonts.inter(
                       fontSize: 12,
                       fontWeight: FontWeight.w400,
@@ -237,20 +338,24 @@ class LoansScreen extends StatelessWidget {
                     children: [
                       // Monthly EMI
                       _buildHeroStatColumn(
-                        value: '₹31,420',
+                        value: money(_totalEmiPaise),
                         label: 'MONTHLY EMI',
                         valueColor: Colors.white,
                       ),
-                      // Debt-to-income
+                      // Was "DEBT-TO-INCOME 14%", but no endpoint returns the
+                      // customer's income, so that ratio could only ever be a
+                      // constant. The EMI-weighted average rate is derivable.
                       _buildHeroStatColumn(
-                        value: '14%',
-                        label: 'DEBT-TO-INCOME',
+                        value: _avgRateLabel,
+                        label: 'AVG RATE',
                         valueColor: const Color(0xFF86EFAC),
                       ),
-                      // Missed EMIs
+                      // Was "MISSED EMIS 0" — repayment history is not exposed
+                      // by the loans API, so a hardcoded zero would be a claim
+                      // about the customer's record that nothing backs.
                       _buildHeroStatColumn(
-                        value: '0',
-                        label: 'MISSED EMIS',
+                        value: tenureFor(_longestTenureMonths),
+                        label: 'LONGEST TENURE',
                         valueColor: Colors.white,
                       ),
                     ],
@@ -296,38 +401,64 @@ class LoansScreen extends StatelessWidget {
 
   // Active Loans List
   Widget _buildActiveLoansList(BuildContext context) {
+    if (_loading) {
+      return const Padding(
+        padding: EdgeInsets.symmetric(vertical: 32),
+        child: Center(child: CircularProgressIndicator()),
+      );
+    }
+    if (_loans.isEmpty) {
+      return Padding(
+        padding: const EdgeInsets.symmetric(vertical: 32),
+        child: Center(
+          child: Text(
+            tr('No active loans'),
+            style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF64748B)),
+          ),
+        ),
+      );
+    }
+
     return Column(
       children: [
-        // Card 1: Home Loan
-        _buildLoanCard(
-          icon: Icons.home_outlined,
-          title: 'Home Loan',
-          subtitle: 'PSB - 4521  8.4% p.a.',
-          repaidText: '₹7,17,500 repaid',
-          totalText: '38% of ₹19,00,000',
-          progress: 0.38,
-          outstanding: '₹11,82,500',
-          tenure: '11y 4m',
-          interest: '₹2,84,200',
-          nextEmiDate: 'Next EMI · 05 Jul',
-          nextEmiAmount: '₹24,650',
-        ),
-        const SizedBox(height: 16),
+        for (var i = 0; i < _loans.length; i++) ...[
+          if (i > 0) const SizedBox(height: 16),
+          Builder(builder: (context) {
+            final l = _loans[i];
+            final outstanding = (l['outstandingPaise'] as num?)?.toInt() ?? 0;
+            final emi = (l['emiPaise'] as num?)?.toInt() ?? 0;
+            final months = (l['remainingMonths'] as num?)?.toInt() ?? 0;
+            final rate = (l['interestRate'] as num?)?.toDouble() ?? 0;
 
-        // Card 2: Vehicle Loan
-        _buildLoanCard(
-          icon: Icons.directions_car_outlined,
-          title: 'Vehicle Loan',
-          subtitle: 'HDFC - 8472 · 9.1% p.a.',
-          repaidText: '₹4,90,000 repaid',
-          totalText: '62% of ₹7,90,000',
-          progress: 0.62,
-          outstanding: '₹3,00,000',
-          tenure: '2y 8m',
-          interest: '₹86,400',
-          nextEmiDate: 'Next EMI · 07 Jul',
-          nextEmiAmount: '₹6,770',
-        ),
+            // The API exposes only what is still owed — outstanding, EMI, rate
+            // and remaining months. The original principal and the amount
+            // already repaid are NOT available, so the card no longer claims
+            // "X repaid, N% of Y"; that figure would be invented. What can be
+            // derived honestly is the split of the remaining payments between
+            // principal and interest, which is what the bar now shows.
+            final totalPayable = emi * months;
+            final interestLeft = (totalPayable - outstanding).clamp(0, 1 << 62);
+            final principalShare =
+                totalPayable > 0 ? outstanding / totalPayable : 0.0;
+
+            return _buildLoanCard(
+              icon: iconFor((l['loanType'] ?? '').toString()),
+              title: titleFor((l['loanType'] ?? '').toString()),
+              subtitle: '${l['lender'] ?? 'Lender'} · '
+                  '${rate.toStringAsFixed(2)}% p.a.',
+              repaidText: '${money(outstanding)} principal left',
+              totalText: totalPayable > 0
+                  ? 'of ${money(totalPayable)} still payable'
+                  : 'schedule unavailable',
+              progress: principalShare.toDouble(),
+              outstanding: money(outstanding),
+              tenure: tenureFor(months),
+              interest: money(interestLeft),
+              nextEmiDate: 'EMI · monthly',
+              nextEmiAmount: money(emi),
+            );
+          }),
+        ],
       ],
     );
   }
@@ -400,7 +531,7 @@ class LoansScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  'ON TIME',
+                  tr('ON TIME'),
                   style: GoogleFonts.inter(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -566,7 +697,7 @@ class LoansScreen extends StatelessWidget {
                     borderRadius: BorderRadius.circular(999),
                   ),
                   child: Text(
-                    'FINIX INSIGHT',
+                    tr('FINIX INSIGHT'),
                     style: GoogleFonts.inter(
                       fontSize: 10,
                       fontWeight: FontWeight.bold,
@@ -617,7 +748,7 @@ class LoansScreen extends StatelessWidget {
                     );
                   },
                   child: Text(
-                    'Run What-If →',
+                    tr('Run What-If →'),
                     style: GoogleFonts.inter(
                       fontSize: 12.18,
                       fontWeight: FontWeight.w600,

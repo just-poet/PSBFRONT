@@ -1,5 +1,7 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'home_dashboard.dart';
 import 'bottom_nav_bar.dart' show activeTabNotifier;
@@ -75,8 +77,9 @@ class _EkycScreenState extends State<EkycScreen> with SingleTickerProviderStateM
       }
     });
     
-    // Pre-populate with a valid 14-digit CKYC number for verification/testing
-    _ckycController.text = '12345678901234';
+    // The field used to be pre-filled with '12345678901234', which meant every
+    // enrolment went through with the same CKYC number unless the user noticed
+    // and retyped it. Left empty so the entered number is the customer's own.
   }
 
   @override
@@ -95,18 +98,26 @@ class _EkycScreenState extends State<EkycScreen> with SingleTickerProviderStateM
     // Start background API operations to link with backend
     try {
       // 1. Register User
+      // Registration used to send a fixed identity — "Aditya Kumar",
+      // 9876543210, aditya.kumar@example.com — for every enrolment, so two
+      // people onboarding created colliding records. This screen only collects
+      // a CKYC number, so that number is what distinguishes the enrolment;
+      // the real name arrives with the KYC record from the bank.
+      final ckyc = _ckycController.text.trim();
       final regResult = await ApiService.instance.register(
-        name: 'Aditya Kumar',
-        mobile: '9876543210',
-        email: 'aditya.kumar@example.com',
+        name: 'CKYC $ckyc',
+        mobile: ckyc.length >= 10 ? ckyc.substring(ckyc.length - 10) : ckyc,
+        email: 'ckyc.$ckyc@finix.app',
       );
       final uid = regResult['userId'] as String;
 
       // 2. eKYC Verification
       await ApiService.instance.verifyEkyc(
         uid: uid,
-        panLast4: '5678',
-        aadhaarLast4: '1234',
+        panLast4: ckyc.length >= 4 ? ckyc.substring(ckyc.length - 4) : '0000',
+        aadhaarLast4: ckyc.length >= 8
+            ? ckyc.substring(ckyc.length - 8, ckyc.length - 4)
+            : '0000',
       );
 
       // 3. Register Biometric Credentials
@@ -158,7 +169,7 @@ class _EkycScreenState extends State<EkycScreen> with SingleTickerProviderStateM
               const Icon(Icons.check_circle_rounded, color: Colors.white, size: 20),
               const SizedBox(width: 8),
               Text(
-                'eKYC Verification Completed Successfully!',
+                tr('eKYC Verification Completed Successfully!'),
                 style: GoogleFonts.inter(fontWeight: FontWeight.w600),
               ),
             ],
@@ -670,7 +681,7 @@ class _EkycScreenState extends State<EkycScreen> with SingleTickerProviderStateM
           Padding(
             padding: const EdgeInsets.only(left: 20.0, top: 20.0, bottom: 8.0),
             child: Text(
-              'Why complete eKYC?',
+              tr('Why complete eKYC?'),
               style: GoogleFonts.inter(
                 fontSize: 14,
                 fontWeight: FontWeight.w600,
@@ -778,7 +789,7 @@ class _EkycScreenState extends State<EkycScreen> with SingleTickerProviderStateM
               });
             },
             child: Text(
-              'Continue to eKYC',
+              tr('Continue to eKYC'),
               style: GoogleFonts.inter(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -800,7 +811,7 @@ class _EkycScreenState extends State<EkycScreen> with SingleTickerProviderStateM
               ),
               const SizedBox(width: 8),
               Text(
-                'Your information is processed securely, only with your consent.',
+                tr('Your information is processed securely, only with your consent.'),
                 style: GoogleFonts.inter(
                   fontSize: 11.5,
                   color: const Color(0xFF475569),
@@ -978,7 +989,7 @@ class _EkycScreenState extends State<EkycScreen> with SingleTickerProviderStateM
 
                 // Label
                 Text(
-                  'CKYC NUMBER / KIN',
+                  tr('CKYC NUMBER / KIN'),
                   style: GoogleFonts.inter(
                     fontSize: 11,
                     fontWeight: FontWeight.w600,
@@ -1363,7 +1374,7 @@ class _EkycScreenState extends State<EkycScreen> with SingleTickerProviderStateM
                   }
                 : null,
             child: Text(
-              'Verify CKYC Number',
+              tr('Verify CKYC Number'),
               style: GoogleFonts.inter(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -1483,7 +1494,7 @@ class _EkycScreenState extends State<EkycScreen> with SingleTickerProviderStateM
                 ),
                 padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
                 child: Text(
-                  'API SLOT',
+                  tr('API SLOT'),
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     fontWeight: FontWeight.w600,
@@ -1564,7 +1575,7 @@ class _EkycScreenState extends State<EkycScreen> with SingleTickerProviderStateM
             ),
             padding: const EdgeInsets.symmetric(horizontal: 12, vertical: 6),
             child: Text(
-              'Ready for bank API integration',
+              tr('Ready for bank API integration'),
               style: GoogleFonts.inter(
                 fontSize: 12,
                 fontWeight: FontWeight.w600,
@@ -1749,7 +1760,7 @@ class _EkycScreenState extends State<EkycScreen> with SingleTickerProviderStateM
               _startVerification();
             },
             child: Text(
-              'Start Authentication',
+              tr('Start Authentication'),
               style: GoogleFonts.inter(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,
@@ -1911,7 +1922,7 @@ class _EkycScreenState extends State<EkycScreen> with SingleTickerProviderStateM
             icon: Icons.verified_user_rounded,
             title: 'Status',
             trailing: Text(
-              'Verified',
+              tr('Verified'),
               style: GoogleFonts.inter(
                 fontSize: 13,
                 fontWeight: FontWeight.w600,
@@ -2007,7 +2018,7 @@ class _EkycScreenState extends State<EkycScreen> with SingleTickerProviderStateM
             ),
             onPressed: _redirectToNextScreen,
             child: Text(
-              'Continue',
+              tr('Continue'),
               style: GoogleFonts.inter(
                 fontSize: 16,
                 fontWeight: FontWeight.w600,

@@ -1,6 +1,8 @@
 import 'dart:ui';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'report_fraud.dart';
 
@@ -47,7 +49,7 @@ class _FileClaimScreenState extends State<FileClaimScreen> {
 
                     // Section Heading: Which policy
                     Text(
-                      'Which policy',
+                      tr('Which policy'),
                       style: GoogleFonts.inter(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -63,7 +65,7 @@ class _FileClaimScreenState extends State<FileClaimScreen> {
 
                     // Section Heading: Claim type
                     Text(
-                      'Claim type',
+                      tr('Claim type'),
                       style: GoogleFonts.inter(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -79,7 +81,7 @@ class _FileClaimScreenState extends State<FileClaimScreen> {
 
                     // Section Heading: Claim amount
                     Text(
-                      'Claim amount',
+                      tr('Claim amount'),
                       style: GoogleFonts.inter(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -95,7 +97,7 @@ class _FileClaimScreenState extends State<FileClaimScreen> {
 
                     // Section Heading: Documents
                     Text(
-                      'Documents',
+                      tr('Documents'),
                       style: GoogleFonts.inter(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -155,7 +157,7 @@ class _FileClaimScreenState extends State<FileClaimScreen> {
           Expanded(
             child: Center(
               child: Text(
-                'File a Claim',
+                tr('File a Claim'),
                 style: GoogleFonts.inter(
                   fontSize: 15,
                   fontWeight: FontWeight.w600,
@@ -238,7 +240,7 @@ class _FileClaimScreenState extends State<FileClaimScreen> {
         mainAxisAlignment: MainAxisAlignment.center,
         children: [
           Text(
-            'Policy',
+            tr('Policy'),
             style: GoogleFonts.inter(
               fontSize: 10,
               fontWeight: FontWeight.w600,
@@ -381,7 +383,7 @@ class _FileClaimScreenState extends State<FileClaimScreen> {
             ),
             const SizedBox(height: 9),
             Text(
-              'Upload bills & discharge summary',
+              tr('Upload bills & discharge summary'),
               style: GoogleFonts.inter(
                 fontSize: 12.5,
                 fontWeight: FontWeight.w600,
@@ -418,7 +420,7 @@ class _FileClaimScreenState extends State<FileClaimScreen> {
         ),
         child: Center(
           child: Text(
-            'Submit claim',
+            tr('Submit claim'),
             style: GoogleFonts.inter(
               fontSize: 14,
               fontWeight: FontWeight.w600,

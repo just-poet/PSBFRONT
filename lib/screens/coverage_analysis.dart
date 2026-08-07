@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class CoverageAnalysisScreen extends StatelessWidget {
@@ -28,7 +30,7 @@ class CoverageAnalysisScreen extends StatelessWidget {
                     Align(
                       alignment: Alignment.centerLeft,
                       child: Text(
-                        'Why we say this',
+                        tr('Why we say this'),
                         style: GoogleFonts.inter(
                           fontSize: 12.5,
                           fontWeight: FontWeight.w600,
@@ -111,7 +113,7 @@ class CoverageAnalysisScreen extends StatelessWidget {
         children: [
           // Title
           Text(
-            'Coverage Analysis',
+            tr('Coverage Analysis'),
             style: GoogleFonts.inter(
               fontSize: 15,
               fontWeight: FontWeight.w600,
@@ -183,7 +185,7 @@ class CoverageAnalysisScreen extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Current cover',
+                tr('Current cover'),
                 style: GoogleFonts.inter(
                   fontSize: 12,
                   color: const Color(0xFF475569),
@@ -231,7 +233,7 @@ class CoverageAnalysisScreen extends StatelessWidget {
             mainAxisAlignment: MainAxisAlignment.spaceBetween,
             children: [
               Text(
-                'Suggested cover',
+                tr('Suggested cover'),
                 style: GoogleFonts.inter(
                   fontSize: 12,
                   color: const Color(0xFF475569),
@@ -410,7 +412,7 @@ class CoverageAnalysisScreen extends StatelessWidget {
           );
         },
         child: Text(
-          'See suggested plans →',
+          tr('See suggested plans →'),
           style: GoogleFonts.inter(
             fontSize: 14,
             fontWeight: FontWeight.w600,

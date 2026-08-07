@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class LoanStatementScreen extends StatelessWidget {
@@ -30,7 +32,7 @@ class LoanStatementScreen extends StatelessWidget {
 
                     // Next payment heading
                     Text(
-                      'Next payment',
+                      tr('Next payment'),
                       style: GoogleFonts.inter(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -46,7 +48,7 @@ class LoanStatementScreen extends StatelessWidget {
 
                     // Recent EMIs heading
                     Text(
-                      'Recent EMIs',
+                      tr('Recent EMIs'),
                       style: GoogleFonts.inter(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -86,7 +88,7 @@ class LoanStatementScreen extends StatelessWidget {
         children: [
           // Centered Title
           Text(
-            'Loan Statement',
+            tr('Loan Statement'),
             style: GoogleFonts.inter(
               fontSize: 15,
               fontWeight: FontWeight.w600,
@@ -189,7 +191,7 @@ class LoanStatementScreen extends StatelessWidget {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'HOME LOAN · OUTSTANDING',
+                    tr('HOME LOAN · OUTSTANDING'),
                     style: GoogleFonts.inter(
                       fontSize: 10,
                       fontWeight: FontWeight.w600,
@@ -420,7 +422,7 @@ class LoanStatementScreen extends StatelessWidget {
         ),
         child: Center(
           child: Text(
-            'Download full statement (PDF)',
+            tr('Download full statement (PDF)'),
             style: GoogleFonts.inter(
               fontSize: 14,
               fontWeight: FontWeight.w600,

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'protection_report.dart';
@@ -6,9 +8,114 @@ import 'coverage_analysis.dart';
 import 'file_claim.dart';
 import 'update_nominee.dart';
 import 'documents_download.dart';
+import '../services/api_service.dart';
 
-class InsuranceScreen extends StatelessWidget {
+class InsuranceScreen extends StatefulWidget {
   const InsuranceScreen({super.key});
+
+  @override
+  State<InsuranceScreen> createState() => _InsuranceScreenState();
+}
+
+class _InsuranceScreenState extends State<InsuranceScreen> {
+  // Policies come from /v1/portfolio/insurance. The two cards below were fixed
+  // to an LIC term plan and a Star Health floater, so every signed-in customer
+  // saw the same cover regardless of what they actually hold.
+  Map<String, dynamic> _insurance = const {};
+  List<Map<String, dynamic>> _policies = const [];
+  int _protectionScore = 0;
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final results = await Future.wait([
+      ApiService.instance.getInsurance(),
+      ApiService.instance.getHealthScore(),
+    ]);
+    if (!mounted) return;
+    final ins = results[0];
+    final health = results[1];
+    final pillars = (health['pillars'] as List?) ?? const [];
+    final protection = pillars.cast<Map<String, dynamic>>().firstWhere(
+          (p) => (p['name'] ?? '').toString() == 'ProtectionCoverage',
+          orElse: () => const <String, dynamic>{},
+        );
+    setState(() {
+      _insurance = ins;
+      _policies = ((ins['policies'] as List?) ?? const [])
+          .cast<Map<String, dynamic>>();
+      _protectionScore = ((protection['score'] as num?) ?? 0).round();
+      _loading = false;
+    });
+  }
+
+  static String money(num paise) {
+    final n = (paise / 100).round().abs().toString();
+    if (n.length <= 3) return '₹$n';
+    final last3 = n.substring(n.length - 3);
+    var rest = n.substring(0, n.length - 3);
+    final groups = <String>[];
+    while (rest.length > 2) {
+      groups.insert(0, rest.substring(rest.length - 2));
+      rest = rest.substring(0, rest.length - 2);
+    }
+    if (rest.isNotEmpty) groups.insert(0, rest);
+    return '₹${groups.join(',')},$last3';
+  }
+
+  /// Cover is quoted in crore/lakh on the hero, matching how Indian policies
+  /// are actually sold.
+  static String compactCover(num paise) {
+    final rupees = paise / 100;
+    if (rupees >= 10000000) {
+      return '${(rupees / 10000000).toStringAsFixed(2)} Cr';
+    }
+    if (rupees >= 100000) return '${(rupees / 100000).toStringAsFixed(2)} L';
+    return rupees.round().toString();
+  }
+
+  static String policyTitle(String type) {
+    switch (type) {
+      case 'term_life':
+        return 'Term Life Insurance';
+      case 'health':
+        return 'Health Insurance';
+      case 'motor':
+        return 'Motor Insurance';
+      case 'personal_accident':
+        return 'Personal Accident Cover';
+      default:
+        if (type.isEmpty) return 'Insurance Policy';
+        final words = type.split('_').map(
+            (w) => w.isEmpty ? w : w[0].toUpperCase() + w.substring(1));
+        return '${words.join(' ')} Insurance';
+    }
+  }
+
+  static IconData policyIcon(String type) {
+    switch (type) {
+      case 'health':
+        return Icons.favorite_border_rounded;
+      case 'motor':
+        return Icons.directions_car_outlined;
+      case 'personal_accident':
+        return Icons.personal_injury_outlined;
+      default:
+        return Icons.shield_outlined;
+    }
+  }
+
+  static String bandFor(int score) {
+    if (score >= 80) return 'Strong';
+    if (score >= 65) return 'Adequate';
+    if (score >= 50) return 'Thin';
+    return 'At risk';
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -39,7 +146,7 @@ class InsuranceScreen extends StatelessWidget {
                       mainAxisAlignment: MainAxisAlignment.spaceBetween,
                       children: [
                         Text(
-                          'Your policies',
+                          tr('Your policies'),
                           style: GoogleFonts.inter(
                             fontSize: 14,
                             fontWeight: FontWeight.w600,
@@ -57,7 +164,7 @@ class InsuranceScreen extends StatelessWidget {
                             );
                           },
                           child: Text(
-                            'Documents →',
+                            tr('Documents →'),
                             style: GoogleFonts.inter(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
@@ -69,33 +176,63 @@ class InsuranceScreen extends StatelessWidget {
                     ),
                     const SizedBox(height: 12),
 
-                    // Term Life Insurance Card
-                    _buildPolicyCard(
-                      icon: Icons.shield_outlined,
-                      title: 'Term Life Insurance',
-                      provider: 'LIC Tech Term · Policy LIC- 88412-T',
-                      assuredAmount: '₹1,00,00,000',
-                      assuredLabel: 'SUM ASSURED · TILL AGE 60',
-                      premiumText: 'Premium ₹1,640/mo · Auto-debit',
-                      renewalText: 'Renews 12 Aug 2026',
-                    ),
-                    const SizedBox(height: 12),
-
-                    // Health Insurance Card
-                    _buildPolicyCard(
-                      icon: Icons.favorite_border_rounded,
-                      title: 'Health Insurance',
-                      provider: 'Star Health Family Floater · STR-2204-H',
-                      assuredAmount: '₹10,00,000',
-                      assuredLabel: 'FAMILY FLOATER · SELF + 1',
-                      premiumText: 'Premium ₹1,570/mo · 80D claimed',
-                      renewalText: 'Renews 03 Nov 2026',
-                    ),
+                    // One card per policy actually held by this customer.
+                    if (_loading)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 28),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (_policies.isEmpty)
+                      Padding(
+                        padding: const EdgeInsets.symmetric(vertical: 28),
+                        child: Center(
+                          child: Text(
+                            tr('No active policies'),
+                            style: GoogleFonts.inter(
+                              fontSize: 13,
+                              color: const Color(0xFF64748B),
+                            ),
+                          ),
+                        ),
+                      )
+                    else
+                      for (var i = 0; i < _policies.length; i++) ...[
+                        if (i > 0) const SizedBox(height: 12),
+                        Builder(builder: (context) {
+                          final pol = _policies[i];
+                          final type = (pol['policyType'] ?? pol['type'] ?? '')
+                              .toString();
+                          final cover =
+                              (pol['sumAssuredPaise'] as num?)?.toInt() ??
+                                  (pol['coverAmountPaise'] as num?)?.toInt() ??
+                                  0;
+                          final premium =
+                              (pol['premiumPaise'] as num?)?.toInt() ?? 0;
+                          final insurer =
+                              (pol['insurer'] ?? pol['provider'] ?? 'Insurer')
+                                  .toString();
+                          final id =
+                              (pol['policyId'] ?? pol['id'] ?? '').toString();
+                          final due =
+                              (pol['nextDueDate'] ?? pol['dueDate'] ?? '')
+                                  .toString();
+                          return _buildPolicyCard(
+                            icon: policyIcon(type),
+                            title: policyTitle(type),
+                            provider: '$insurer · Policy $id',
+                            assuredAmount: money(cover),
+                            assuredLabel: 'SUM ASSURED',
+                            premiumText: 'Premium ${money(premium)}/mo',
+                            renewalText:
+                                due.isEmpty ? 'Renewal date pending' : 'Renews $due',
+                          );
+                        }),
+                      ],
                     const SizedBox(height: 24),
 
                     // Section Heading: Coverage analysis
                     Text(
-                      'Coverage analysis',
+                      tr('Coverage analysis'),
                       style: GoogleFonts.inter(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -114,7 +251,7 @@ class InsuranceScreen extends StatelessWidget {
 
                     // Section Heading: Quick actions
                     Text(
-                      'Quick actions',
+                      tr('Quick actions'),
                       style: GoogleFonts.inter(
                         fontSize: 14,
                         fontWeight: FontWeight.w600,
@@ -180,7 +317,7 @@ class InsuranceScreen extends StatelessWidget {
         children: [
           // Centered Title
           Text(
-            'Insurance',
+            tr('Insurance'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -275,7 +412,8 @@ class InsuranceScreen extends StatelessWidget {
               mainAxisAlignment: MainAxisAlignment.spaceBetween,
               children: [
                 Text(
-                  'TOTAL COVER · 2 ACTIVE POLICIES',
+                  'TOTAL COVER · ${_policies.length} ACTIVE '
+                  '${_policies.length == 1 ? 'POLICY' : 'POLICIES'}',
                   style: GoogleFonts.inter(
                     fontSize: 10,
                     fontWeight: FontWeight.w600,
@@ -298,7 +436,7 @@ class InsuranceScreen extends StatelessWidget {
                             ),
                           ),
                           TextSpan(
-                            text: ' 1.10 Cr',
+                            text: ' ${compactCover((_insurance['totalCoverPaise'] as num?) ?? 0)}',
                             style: GoogleFonts.fraunces(
                               fontSize: 37,
                               fontWeight: FontWeight.w400,
@@ -311,7 +449,8 @@ class InsuranceScreen extends StatelessWidget {
                   ],
                 ),
                 Text(
-                  'Protection pillar score 88 / 100 · Strong',
+                  'Protection pillar score $_protectionScore / 100 '
+                  '· ${bandFor(_protectionScore)}',
                   style: GoogleFonts.inter(
                     fontSize: 12,
                     fontWeight: FontWeight.w400,
@@ -398,7 +537,7 @@ class InsuranceScreen extends StatelessWidget {
                   borderRadius: BorderRadius.circular(999),
                 ),
                 child: Text(
-                  'ACTIVE',
+                  tr('ACTIVE'),
                   style: GoogleFonts.inter(
                     fontSize: 10.5,
                     fontWeight: FontWeight.bold,
@@ -500,7 +639,7 @@ class InsuranceScreen extends StatelessWidget {
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
                     Text(
-                      'COVERAGE GAP',
+                      tr('COVERAGE GAP'),
                       style: GoogleFonts.inter(
                         fontSize: 10,
                         fontWeight: FontWeight.bold,
@@ -559,7 +698,7 @@ class InsuranceScreen extends StatelessWidget {
                 );
               },
               child: Text(
-                'Coverage →',
+                tr('Coverage →'),
                 style: GoogleFonts.inter(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,
@@ -617,7 +756,7 @@ class InsuranceScreen extends StatelessWidget {
                         borderRadius: BorderRadius.circular(4),
                       ),
                       child: Text(
-                        'FINIX INSIGHT',
+                        tr('FINIX INSIGHT'),
                         style: GoogleFonts.inter(
                           fontSize: 9.5,
                           fontWeight: FontWeight.bold,
@@ -667,7 +806,7 @@ class InsuranceScreen extends StatelessWidget {
                 );
               },
               child: Text(
-                'Full protection report →',
+                tr('Full protection report →'),
                 style: GoogleFonts.inter(
                   fontSize: 12,
                   fontWeight: FontWeight.w600,

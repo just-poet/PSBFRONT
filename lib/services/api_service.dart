@@ -55,8 +55,53 @@ class ApiService {
   String? userId;
   String? deviceIdFingerprint;
 
-  final http.Client _client = http.Client();
+  late final http.Client _client = _AuthAwareClient(this);
   final ValueNotifier<bool> isConnected = ValueNotifier<bool>(false);
+
+  /// Flips to true when the backend rejects our token, so the UI can send the
+  /// customer back to sign-in.
+  ///
+  /// Without this a stale token was indistinguishable from a working one: the
+  /// backend regenerates its JWT signing secret on every restart, and access
+  /// tokens only live 15 minutes, so a persisted token is very often dead. Each
+  /// call would 401, fall into its `catch`/non-200 branch, and quietly return
+  /// mock or empty data — leaving someone stuck on a broken-looking dashboard
+  /// with no way to reach the login screen.
+  final ValueNotifier<bool> sessionExpired = ValueNotifier<bool>(false);
+
+  /// True while the account is frozen.
+  ///
+  /// Watched at the app root so the lock screen covers every route: a freeze
+  /// that still let the customer browse and tap around would not be a freeze.
+  final ValueNotifier<bool> accountFrozen = ValueNotifier<bool>(false);
+
+  /// Bumped whenever anything on the server changed because of something the
+  /// customer just did.
+  ///
+  /// Screens load in initState and never look again, so after a payment the
+  /// dashboard kept showing the old net worth, the history kept its old rows
+  /// and the balances were stale until the app was killed and reopened. The
+  /// backend was right the whole time; the app simply never asked again.
+  /// Screens watch this and re-read.
+  final ValueNotifier<int> dataVersion = ValueNotifier<int>(0);
+
+  /// Call after any successful mutation.
+  void notifyDataChanged() => dataVersion.value++;
+
+  /// Called by [_AuthAwareClient] on any 401.
+  void _handleUnauthorized() {
+    if (sessionToken == null && !sessionExpired.value) return;
+    expireSession();
+  }
+
+  /// Drops the session and sends the app back to sign-in.
+  ///
+  /// Shared by the 401 interceptor and the idle timeout so both end a session
+  /// the same way, rather than each clearing a different subset of state.
+  void expireSession() {
+    clearSession();
+    sessionExpired.value = true;
+  }
 
   // SharedPreferences keys
   static const String _keyToken = 'finix_session_token';
@@ -93,10 +138,29 @@ class ApiService {
       final prefs = await SharedPreferences.getInstance();
       sessionToken = prefs.getString(_keyToken);
       userId = prefs.getString(_keyUserId);
-      baseUrl = prefs.getString(_keyBaseUrl) ?? defaultBaseUrl;
       userName.value = prefs.getString(_keyUserName);
+
+      final stored = prefs.getString(_keyBaseUrl);
+      if (compiledBaseUrl.isEmpty && stored != null) {
+        baseUrl = stored;
+      } else if (compiledBaseUrl.isNotEmpty && stored != compiledBaseUrl) {
+        await prefs.setString(_keyBaseUrl, compiledBaseUrl);
+      }
     } catch (e) {
       // Graceful fallback if SharedPreferences is not supported (web preview)
+    }
+
+    // A build-time FINIX_BASE_URL must beat whatever an earlier install stored.
+    // Previously the stored value always won, so handing someone a new APK
+    // pointing at a new tunnel changed nothing — the app kept calling the dead
+    // URL from the previous build, which is indistinguishable from the backend
+    // being down. Only a URL the user typed in themselves survives, and only
+    // when this build did not pin one.
+    //
+    // Deliberately outside the try above: if SharedPreferences is unavailable
+    // the compiled address is the only one we can trust, so it must still win.
+    if (compiledBaseUrl.isNotEmpty) {
+      baseUrl = compiledBaseUrl;
     }
 
     try {
@@ -176,6 +240,11 @@ class ApiService {
     final Map<String, String> headers = {
       'Content-Type': 'application/json',
       'X-Device-Fingerprint': deviceIdFingerprint ?? '',
+      // Free ngrok tunnels serve an HTML interstitial to anything it thinks is
+      // a browser. If that ever fires, jsonDecode gets a chunk of HTML and the
+      // failure surfaces as a mock-data fallback rather than a clear error, so
+      // opt out explicitly instead of relying on the Dart user-agent.
+      'ngrok-skip-browser-warning': 'true',
     };
 
     if (requireAuth && sessionToken != null) {
@@ -355,6 +424,39 @@ class ApiService {
   /// Throws [ApiException] on a rejected login so the UI can show the reason —
   /// unlike the read-only getters, a failed sign-in must NOT fall through to
   /// mock data and pretend the user is authenticated.
+  /// Signs in with a mobile number.
+  ///
+  /// The backend already resolved accounts by mobile; it just needed the
+  /// number in canonical form, which it now normalises. A customer types ten
+  /// digits, not a country code.
+  Future<Map<String, dynamic>> loginWithPhone(String phone, String pin) async {
+    final response = await _client.post(
+      Uri.parse('$baseUrl/v1/auth/login/pin'),
+      headers: _headers(requireAuth: false, isMutation: true),
+      body: jsonEncode({
+        'mobile': phone.trim(),
+        'pin': pin,
+        'deviceIdFingerprint': deviceIdFingerprint ?? '',
+      }),
+    );
+
+    if (response.statusCode != 200) {
+      isConnected.value = false;
+      throw ApiException(
+          _errorMessage(response.body, 'Invalid mobile number or PIN.'));
+    }
+
+    isConnected.value = true;
+    final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+    final token = (decoded['accessToken'] ?? '').toString();
+    final uid = (decoded['userId'] ?? '').toString();
+    if (token.isEmpty || uid.isEmpty) {
+      throw ApiException('Sign-in failed. Please try again.');
+    }
+    await saveSession(token, uid, name: decoded['name'] as String?);
+    return decoded;
+  }
+
   Future<Map<String, dynamic>> loginWithCkyc(String ckyc, String pin) async {
     final body = {
       'ckyc': ckyc.trim(),
@@ -434,6 +536,181 @@ class ApiService {
 
   // 2. Portfolio & Net Worth
   
+  /// KYC-locked identity: legal name, DOB, masked PAN/Aadhaar, KYC status and
+  /// date, occupation and declared income. Feeds the Personal Details screen,
+  /// which previously hardcoded a name, DOB, PAN and address.
+  /// The tamper-evident audit trail: real sign-ins, freezes, payment decisions.
+  /// The screen previously rendered a fixed list of invented events.
+  /// Scans one message for phishing signals.
+  ///
+  /// Returns the backend verdict: badge (green/amber/red), a plain-English
+  /// reason, the phishing indicators found and any URL scan result. Returns an
+  /// empty map when the scan cannot be performed, so callers show "not scanned"
+  /// rather than a false all-clear.
+  Future<Map<String, dynamic>> scanSms({
+    required String sender,
+    required String message,
+  }) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/v1/security/sms/scan'),
+        headers: _headers(requireAuth: true, isMutation: true),
+        body: jsonEncode({'sender': sender, 'message': message}),
+      );
+      if (response.statusCode == 200) {
+        isConnected.value = true;
+        return Map<String, dynamic>.from(jsonDecode(response.body));
+      }
+    } catch (_) {}
+    return const {};
+  }
+
+  /// Asks the backend to issue a one-time code for a step-up.
+  ///
+  /// In a demo build the response carries the code itself, because there is no
+  /// SMS gateway; in production it only confirms that an SMS was sent.
+  /// Verifies the customer's PIN.
+  ///
+  /// The PIN entry screen accepted any six digits — it never checked them — so
+  /// the app's own PIN gate was decorative and an unfreeze or a payment could
+  /// be authorised by anyone holding the phone. There is no dedicated verify
+  /// endpoint, so this re-authenticates with the signed-in customer's cKYC:
+  /// the backend hashes and compares the PIN, and a wrong one fails.
+  ///
+  /// A success also refreshes the session token, which is harmless and keeps a
+  /// long-running session alive.
+  Future<bool> verifyPin(String pin) async {
+    try {
+      final profile = await getProfile();
+      final ckyc = (profile['ckyc'] ?? '').toString();
+      if (ckyc.isEmpty) return false;
+
+      final response = await _client.post(
+        Uri.parse('$baseUrl/v1/auth/login/pin'),
+        headers: _headers(requireAuth: false, isMutation: true),
+        body: jsonEncode({'ckyc': ckyc, 'pin': pin}),
+      );
+      if (response.statusCode != 200) return false;
+
+      final decoded = jsonDecode(response.body) as Map<String, dynamic>;
+      final token = (decoded['accessToken'] ?? '').toString();
+      final uid = (decoded['userId'] ?? '').toString();
+      if (token.isNotEmpty && uid.isNotEmpty) {
+        await saveSession(token, uid, name: decoded['name'] as String?);
+      }
+      return true;
+    } catch (_) {
+      return false;
+    }
+  }
+
+  /// Records the tax regime the customer chose.
+  ///
+  /// The screen said "applied" but nothing was stored, so reopening it showed
+  /// the old regime and the old liability.
+  Future<bool> setTaxRegime(String regime) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/v1/tax/regime'),
+        headers: _headers(requireAuth: true, isMutation: true),
+        body: jsonEncode({'regime': regime}),
+      );
+      if (response.statusCode == 200) {
+        notifyDataChanged();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  /// Records an accepted what-if simulation.
+  Future<bool> applySimulation({
+    required String scenario,
+    String summary = '',
+    int deltaPaise = 0,
+  }) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/v1/simulations/apply'),
+        headers: _headers(requireAuth: true, isMutation: true),
+        body: jsonEncode({
+          'scenario': scenario,
+          'summary': summary,
+          'deltaPaise': deltaPaise,
+        }),
+      );
+      if (response.statusCode == 200) {
+        notifyDataChanged();
+        return true;
+      }
+    } catch (_) {}
+    return false;
+  }
+
+  Future<Map<String, dynamic>> generateOtp() async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/v1/auth/otp/generate'),
+        headers: _headers(requireAuth: true, isMutation: true),
+        body: jsonEncode({}),
+      );
+      if (response.statusCode == 200) {
+        isConnected.value = true;
+        return Map<String, dynamic>.from(jsonDecode(response.body));
+      }
+    } catch (_) {}
+    return const {};
+  }
+
+  Future<List<Map<String, dynamic>>> getAuditLogs() async {
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl/v1/audit/logs'),
+        headers: _headers(requireAuth: true),
+      );
+      if (response.statusCode == 200) {
+        isConnected.value = true;
+        final decoded = jsonDecode(response.body);
+        if (decoded is List) return decoded.cast<Map<String, dynamic>>();
+      }
+    } catch (_) {}
+    isConnected.value = false;
+    return const [];
+  }
+
+  /// The notification feed, derived by the backend from this customer's own
+  /// activity. Genuinely empty for an account that has done nothing.
+  Future<List<Map<String, dynamic>>> getNotifications() async {
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl/v1/notifications'),
+        headers: _headers(requireAuth: true),
+      );
+      if (response.statusCode == 200) {
+        isConnected.value = true;
+        final decoded = jsonDecode(response.body);
+        if (decoded is List) return decoded.cast<Map<String, dynamic>>();
+      }
+    } catch (_) {}
+    isConnected.value = false;
+    return const [];
+  }
+
+  Future<Map<String, dynamic>> getKycProfile() async {
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl/v1/kyc/profile'),
+        headers: _headers(requireAuth: true),
+      );
+      if (response.statusCode == 200) {
+        isConnected.value = true;
+        return Map<String, dynamic>.from(jsonDecode(response.body));
+      }
+    } catch (_) {}
+    isConnected.value = false;
+    return const {};
+  }
+
   Future<Map<String, dynamic>> getNetWorth() async {
     try {
       final response = await _client.get(
@@ -629,6 +906,8 @@ class ApiService {
         body: jsonEncode(body),
       );
       if (response.statusCode == 200 || response.statusCode == 201) {
+        // Something changed server-side; tell every screen to re-read.
+        notifyDataChanged();
         isConnected.value = true;
         return jsonDecode(response.body);
       }
@@ -784,6 +1063,8 @@ class ApiService {
         body: jsonEncode(body),
       );
       if (response.statusCode == 200 || response.statusCode == 201) {
+        // Something changed server-side; tell every screen to re-read.
+        notifyDataChanged();
         isConnected.value = true;
         return jsonDecode(response.body);
       }
@@ -819,6 +1100,8 @@ class ApiService {
         body: jsonEncode(body),
       );
       if (response.statusCode == 200 || response.statusCode == 201) {
+        // Something changed server-side; tell every screen to re-read.
+        notifyDataChanged();
         isConnected.value = true;
         return jsonDecode(response.body);
       }
@@ -904,6 +1187,8 @@ class ApiService {
         body: jsonEncode(body),
       );
       if (response.statusCode == 200 || response.statusCode == 201) {
+        // Something changed server-side; tell every screen to re-read.
+        notifyDataChanged();
         isConnected.value = true;
         return jsonDecode(response.body);
       }
@@ -935,6 +1220,8 @@ class ApiService {
         body: jsonEncode(body),
       );
       if (response.statusCode == 200 || response.statusCode == 201) {
+        // Something changed server-side; tell every screen to re-read.
+        notifyDataChanged();
         isConnected.value = true;
         return jsonDecode(response.body);
       }
@@ -982,6 +1269,8 @@ class ApiService {
         headers: _headers(requireAuth: true, isMutation: true),
       );
       if (response.statusCode == 200) {
+        // Something changed server-side; tell every screen to re-read.
+        notifyDataChanged();
         isConnected.value = true;
         return jsonDecode(response.body);
       }
@@ -1040,6 +1329,14 @@ class ApiService {
 
   // 7. Security Controls
   
+  /// Refreshes [accountFrozen] from the backend's own state.
+  Future<void> refreshFreezeState() async {
+    final health = await getSecurityHealth();
+    if (health['is_frozen'] is bool) {
+      accountFrozen.value = health['is_frozen'] as bool;
+    }
+  }
+
   Future<Map<String, dynamic>> getSecurityHealth() async {
     try {
       final response = await _client.get(
@@ -1074,6 +1371,8 @@ class ApiService {
         body: jsonEncode(body),
       );
       if (response.statusCode == 200 || response.statusCode == 201) {
+        // Something changed server-side; tell every screen to re-read.
+        notifyDataChanged();
         isConnected.value = true;
         return jsonDecode(response.body);
       }
@@ -1093,6 +1392,8 @@ class ApiService {
         body: jsonEncode(body),
       );
       if (response.statusCode == 200 || response.statusCode == 201) {
+        // Something changed server-side; tell every screen to re-read.
+        notifyDataChanged();
         isConnected.value = true;
         return jsonDecode(response.body);
       }
@@ -1125,6 +1426,26 @@ class ApiService {
       'deductions': 45000000,     // ₹4,50,000 in paise
       'regime': 'new',
     };
+  }
+
+  /// Section-wise 80C/80D/24(b)/etc. usage against each limit. The tax screen
+  /// used to hardcode four sections with fixed amounts.
+  Future<List<Map<String, dynamic>>> getTaxDeductions() async {
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl/v1/tax/deductions'),
+        headers: _headers(requireAuth: true),
+      );
+      if (response.statusCode == 200) {
+        isConnected.value = true;
+        final decoded = jsonDecode(response.body);
+        if (decoded is List) return decoded.cast<Map<String, dynamic>>();
+        final list = decoded['deductions'];
+        if (list is List) return list.cast<Map<String, dynamic>>();
+      }
+    } catch (_) {}
+    isConnected.value = false;
+    return const [];
   }
 
   Future<Map<String, dynamic>> getTaxRegimeComparison() async {
@@ -1266,5 +1587,34 @@ class ApiService {
         'tenureRemainingMonths': 36,
       }
     ];
+  }
+}
+
+/// Wraps every HTTP call so a rejected token is noticed once, centrally.
+///
+/// The alternative was checking `statusCode == 401` at ~30 call sites, each of
+/// which already had a `catch`/non-200 branch that returned mock data. Sitting
+/// under all of them means no future call site can forget.
+class _AuthAwareClient extends http.BaseClient {
+  _AuthAwareClient(this._api);
+
+  final ApiService _api;
+  final http.Client _inner = http.Client();
+
+  @override
+  Future<http.StreamedResponse> send(http.BaseRequest request) async {
+    final response = await _inner.send(request);
+    if (response.statusCode == 401) {
+      // The refresh endpoint 401ing means the refresh token is dead too, so
+      // there is nothing left to recover with.
+      _api._handleUnauthorized();
+    }
+    return response;
+  }
+
+  @override
+  void close() {
+    _inner.close();
+    super.close();
   }
 }

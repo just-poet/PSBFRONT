@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'goal_detail.dart';
@@ -17,85 +19,29 @@ class _GoalsScreenState extends State<GoalsScreen> {
   List<Map<String, dynamic>> _goals = [];
   bool _isLoading = false;
 
-  final List<Map<String, dynamic>> _fallbackGoals = [
-    {
-      'title': 'Europe Trip',
-      'subtitle': 'Jun 2027 · 8 weeks ahead',
-      'badgeText': 'ON TRACK',
-      'badgeColor': const Color(0xFF16A34A),
-      'badgeBgColor': const Color(0xFF16A34A).withOpacity(0.1),
-      'saved': 730000.0,
-      'target': 1000000.0,
-      'progress': 0.73,
-      'progressColor': const Color(0xFF16A34A),
-      'monthly': '₹15,000',
-      'rightLabel': 'Next: ',
-      'rightValue': '05 Jul',
-      'icon': Icons.airplanemode_active_rounded,
-      'iconBgColor': const Color(0xFFEEF4FA),
-      'iconColor': const Color(0xFF2E75B6),
-      'isCompleted': false,
-    },
-    {
-      'title': 'Home Down Payment',
-      'subtitle': 'Dec 2028 · 3 months behind',
-      'badgeText': 'CATCH UP',
-      'badgeColor': const Color(0xFFF59E0B),
-      'badgeBgColor': const Color(0xFFF59E0B).withOpacity(0.1),
-      'saved': 420000.0,
-      'target': 1500000.0,
-      'progress': 0.28,
-      'progressColor': const Color(0xFFF59E0B),
-      'monthly': '₹25,000',
-      'rightLabel': 'Suggested: ',
-      'rightValue': '₹28,500',
-      'icon': Icons.home_rounded,
-      'iconBgColor': const Color(0xFFEEF4FA),
-      'iconColor': const Color(0xFF2E75B6),
-      'isCompleted': false,
-    },
-    {
-      'title': 'Child Education',
-      'subtitle': 'May 2031 · On track',
-      'badgeText': 'ON TRACK',
-      'badgeColor': const Color(0xFF16A34A),
-      'badgeBgColor': const Color(0xFF16A34A).withOpacity(0.1),
-      'saved': 180000.0,
-      'target': 1000000.0,
-      'progress': 0.18,
-      'progressColor': const Color(0xFF16A34A),
-      'monthly': '₹8,000',
-      'rightLabel': 'Next: ',
-      'rightValue': '10 Jul',
-      'icon': Icons.school_rounded,
-      'iconBgColor': const Color(0xFFEEF4FA),
-      'iconColor': const Color(0xFF2E75B6),
-      'isCompleted': false,
-    },
-    {
-      'title': 'Emergency Fund',
-      'subtitle': 'Completed · 12 Feb 2026',
-      'badgeText': 'ACHIEVED',
-      'badgeColor': const Color(0xFFC8A951),
-      'badgeBgColor': const Color(0xFFC8A951).withOpacity(0.13),
-      'saved': 300000.0,
-      'target': 300000.0,
-      'progress': 1.0,
-      'progressColor': const Color(0xFFC8A951),
-      'monthly': '',
-      'rightLabel': '',
-      'rightValue': '',
-      'icon': Icons.emoji_events_outlined,
-      'iconBgColor': const Color(0xFFFFF9EC),
-      'iconColor': const Color(0xFFC8A951),
-      'isCompleted': true,
-    },
-  ];
+  // A _fallbackGoals list of four invented goals (Europe Trip, Home Down
+  // Payment, Child Education, Emergency Fund) used to fill this screen whenever
+  // /v1/goals returned nothing or errored, showing every customer the same
+  // aspirations and balances. Goals are now only ever what the API returns.
 
   @override
   void initState() {
     super.initState();
+    // Re-read whenever the customer changes something anywhere in the app.
+    // Without this the screen kept whatever it loaded on first build, so a
+    // payment made elsewhere left stale figures here.
+    ApiService.instance.dataVersion.addListener(_onDataChanged);
     _fetchGoals();
+  }
+
+  @override
+  void dispose() {
+    ApiService.instance.dataVersion.removeListener(_onDataChanged);
+    super.dispose();
+  }
+
+  void _onDataChanged() {
+    if (mounted) _fetchGoals();
   }
 
   Future<void> _fetchGoals() async {
@@ -104,22 +50,29 @@ class _GoalsScreenState extends State<GoalsScreen> {
       final apiGoals = await ApiService.instance.getGoals();
       if (mounted) {
         setState(() {
-          if (apiGoals.isNotEmpty) {
-            _goals = apiGoals.map((g) => _mapApiGoal(g)).toList();
-          } else {
-            _goals = List.from(_fallbackGoals);
-          }
+          _goals = apiGoals.map(_mapApiGoal).toList();
           _isLoading = false;
         });
       }
     } catch (e) {
       if (mounted) {
         setState(() {
-          _goals = List.from(_fallbackGoals);
+          _goals = [];
           _isLoading = false;
         });
       }
     }
+  }
+
+  static const _months = [
+    'Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun',
+    'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec',
+  ];
+
+  static String _monthYear(dynamic iso) {
+    final parsed = DateTime.tryParse((iso ?? '').toString());
+    if (parsed == null) return '--';
+    return '${_months[parsed.month - 1]} ${parsed.year}';
   }
 
   Map<String, dynamic> _mapApiGoal(Map<String, dynamic> apiGoal) {
@@ -142,8 +95,12 @@ class _GoalsScreenState extends State<GoalsScreen> {
     
     return {
       'goalId': apiGoal['goalId'],
-      'title': apiGoal['name'] ?? 'Financial Goal',
-      'subtitle': '${apiGoal['description'] ?? 'Active Goal'}',
+      // Seeded goal names recur across every demo account, so they are in
+      // the dictionaries; anything unrecognised stays as the backend sent it.
+      'title': tr((apiGoal['name'] ?? 'Financial Goal').toString()),
+      'subtitle': (apiGoal['description'] ?? '').toString().isNotEmpty
+          ? apiGoal['description'].toString()
+          : 'Target ${_monthYear(apiGoal['targetDate'])}',
       'badgeText': badgeText,
       'badgeColor': progressColor,
       'badgeBgColor': progressColor.withOpacity(0.1),
@@ -152,8 +109,10 @@ class _GoalsScreenState extends State<GoalsScreen> {
       'progress': progress,
       'progressColor': progressColor,
       'monthly': monthlyRupees > 0 ? '₹${monthlyRupees.toStringAsFixed(0)}' : '₹0',
-      'rightLabel': 'Next: ',
-      'rightValue': '10 Jul',
+      // Was a fixed "Next: 10 Jul". The API has no next-contribution date, but
+      // it does have the target date, which is the deadline that matters here.
+      'rightLabel': 'By: ',
+      'rightValue': _monthYear(apiGoal['targetDate']),
       'icon': progress >= 1.0 ? Icons.emoji_events_outlined : Icons.trending_up_rounded,
       'iconBgColor': progress >= 1.0 ? const Color(0xFFFFF9EC) : const Color(0xFFEEF4FA),
       'iconColor': progressColor,
@@ -212,10 +171,60 @@ class _GoalsScreenState extends State<GoalsScreen> {
 
                     // Add new goal action link (Figma node 640:3635)
                     _buildAddNewGoalLink(),
+                    if (_goals.isNotEmpty)
+                      Padding(
+                        padding: const EdgeInsets.only(top: 6),
+                        child: Text(
+                          tr('Long-press a goal to delete it.'),
+                          style: GoogleFonts.inter(
+                            fontSize: 10.5,
+                            color: const Color(0xFF94A3B8),
+                          ),
+                        ),
+                      ),
                     const SizedBox(height: 12),
 
                     // Goals cards list
-                    ListView.separated(
+                    if (_isLoading)
+                      const Padding(
+                        padding: EdgeInsets.symmetric(vertical: 28),
+                        child: Center(child: CircularProgressIndicator()),
+                      )
+                    else if (_goals.isEmpty)
+                      Container(
+                        width: double.infinity,
+                        padding: const EdgeInsets.symmetric(vertical: 28),
+                        decoration: BoxDecoration(
+                          color: Colors.white,
+                          borderRadius: BorderRadius.circular(14),
+                          border: Border.all(color: const Color(0xFFE2E8F0)),
+                        ),
+                        child: Column(
+                          children: [
+                            const Icon(Icons.flag_outlined,
+                                size: 28, color: Color(0xFF94A3B8)),
+                            const SizedBox(height: 8),
+                            Text(
+                              tr('No goals yet'),
+                              style: GoogleFonts.inter(
+                                fontSize: 13,
+                                fontWeight: FontWeight.w600,
+                                color: const Color(0xFF334155),
+                              ),
+                            ),
+                            const SizedBox(height: 4),
+                            Text(
+                              tr('Add a goal above to start tracking progress.'),
+                              style: GoogleFonts.inter(
+                                fontSize: 12,
+                                color: const Color(0xFF64748B),
+                              ),
+                            ),
+                          ],
+                        ),
+                      )
+                    else
+                      ListView.separated(
                       shrinkWrap: true,
                       physics: const NeverScrollableScrollPhysics(),
                       itemCount: _goals.length,
@@ -270,7 +279,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
           ),
           // Center title
           Text(
-            'Goals',
+            tr('Goals'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -332,7 +341,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
           Text(
-            'TOTAL GOAL SAVINGS',
+            tr('TOTAL GOAL SAVINGS'),
             style: GoogleFonts.inter(
               fontSize: 11,
               fontWeight: FontWeight.w600,
@@ -425,7 +434,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
             ),
             const SizedBox(width: 7),
             Text(
-              'Add new goal',
+              tr('Add new goal'),
               style: GoogleFonts.inter(
                 fontSize: 14,
                 fontWeight: FontWeight.bold,
@@ -436,6 +445,81 @@ class _GoalsScreenState extends State<GoalsScreen> {
         ),
       ),
     );
+  }
+
+  /// Deletes a goal, after asking.
+  ///
+  /// Goals could be created but never removed, so a mistyped or abandoned one
+  /// stayed on the list forever. Deletion is confirmed because the saved amount
+  /// and its history go with it.
+  Future<void> _confirmDelete(Map<String, dynamic> goal) async {
+    final name = (goal['title'] ?? 'this goal').toString();
+    final goalId = (goal['goalId'] ?? '').toString();
+
+    final confirmed = await showDialog<bool>(
+      context: context,
+      builder: (dialogContext) => AlertDialog(
+        backgroundColor: Colors.white,
+        surfaceTintColor: Colors.transparent,
+        shape: RoundedRectangleBorder(borderRadius: BorderRadius.circular(16)),
+        title: Text(
+          tr('Delete goal?'),
+          style: GoogleFonts.inter(
+            fontSize: 16,
+            fontWeight: FontWeight.w600,
+            color: const Color(0xFF0A1628),
+          ),
+        ),
+        content: Text(
+          '$name ${tr('and its contribution history will be removed. Money already saved stays in your account.')}',
+          style: GoogleFonts.inter(
+            fontSize: 13,
+            height: 1.5,
+            color: const Color(0xFF475569),
+          ),
+        ),
+        actions: [
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, false),
+            child: Text(
+              tr('Cancel'),
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFF475569),
+              ),
+            ),
+          ),
+          TextButton(
+            onPressed: () => Navigator.pop(dialogContext, true),
+            child: Text(
+              tr('Delete'),
+              style: GoogleFonts.inter(
+                fontSize: 13,
+                fontWeight: FontWeight.w600,
+                color: const Color(0xFFDC2626),
+              ),
+            ),
+          ),
+        ],
+      ),
+    );
+
+    if (confirmed != true || !mounted) return;
+
+    // Removed locally first so the list responds immediately; the reload below
+    // is what makes it stick, and restores the goal if the call failed.
+    setState(() => _goals.removeWhere((g) => g['goalId'] == goal['goalId']));
+
+    if (goalId.isNotEmpty) {
+      await ApiService.instance.dissolveGoal(goalId);
+    }
+    if (!mounted) return;
+
+    ScaffoldMessenger.of(context).showSnackBar(
+      SnackBar(content: Text('$name ${tr('deleted')}')),
+    );
+    await _fetchGoals();
   }
 
   Widget _buildGoalCard(Map<String, dynamic> goal) {
@@ -463,6 +547,7 @@ class _GoalsScreenState extends State<GoalsScreen> {
           );
 
     return GestureDetector(
+      onLongPress: () => _confirmDelete(goal),
       onTap: () {
         Navigator.push(
           context,

@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 import '../main.dart' show navigatorKey;
 import 'home_dashboard.dart';
@@ -9,6 +11,63 @@ import 'security.dart';
 
 // Global ValueNotifier to track active tab across screens
 final ValueNotifier<String> activeTabNotifier = ValueNotifier<String>('home');
+
+/// How many screens currently on screen have asked for the bottom bar to go.
+///
+/// A count rather than a flag: screens can sit on top of one another, and a
+/// plain bool would be cleared by the first one to leave even while another
+/// was still showing.
+final ValueNotifier<int> navBarSuppressors = ValueNotifier<int>(0);
+
+/// Wrap a screen in this to hide the bottom bar while it is on screen.
+///
+/// The bar lives above the Navigator, so a screen cannot simply leave it out.
+/// Used by the payment receipt, which offers its own "Back to home" action and
+/// removes the rest of the stack — tabs there would navigate away from a
+/// receipt the customer has not finished reading.
+class HideBottomNav extends StatefulWidget {
+  final Widget child;
+  const HideBottomNav({super.key, required this.child});
+
+  @override
+  State<HideBottomNav> createState() => _HideBottomNavState();
+}
+
+class _HideBottomNavState extends State<HideBottomNav> {
+  /// Both edges are deferred to after the current frame: the bar listens to
+  /// this notifier, and changing it during a build or during the teardown of a
+  /// popped route rebuilds a widget that is mid-flight, which Flutter asserts
+  /// on. A post-frame callback lands in the gap between frames instead.
+  ///
+  /// The frame is requested explicitly because a post-frame callback does not
+  /// ask for one. On the way out that matters: the route is disposed on the
+  /// last frame of the pop animation, so without this the callback would sit
+  /// queued until something else happened to repaint and the bar would stay
+  /// hidden on the screen underneath.
+  void _shift(int delta) {
+    final binding = WidgetsBinding.instance;
+    binding.addPostFrameCallback((_) {
+      final next = navBarSuppressors.value + delta;
+      navBarSuppressors.value = next > 0 ? next : 0;
+    });
+    binding.scheduleFrame();
+  }
+
+  @override
+  void initState() {
+    super.initState();
+    _shift(1);
+  }
+
+  @override
+  void dispose() {
+    _shift(-1);
+    super.dispose();
+  }
+
+  @override
+  Widget build(BuildContext context) => widget.child;
+}
 
 class FinixBottomNavigationBar extends StatelessWidget {
   const FinixBottomNavigationBar({super.key});
@@ -95,38 +154,39 @@ class FinixBottomNavigationBar extends StatelessWidget {
             ],
           ),
           child: Padding(
-            padding: const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
+            padding:
+                const EdgeInsets.symmetric(horizontal: 10.0, vertical: 8.0),
             child: Row(
               mainAxisAlignment: MainAxisAlignment.spaceAround,
               children: [
                 _buildNavItem(
                   context: context,
                   tabName: 'home',
-                  label: 'Home',
+                  label: tr('Home'),
                   isActive: activeTab == 'home',
                 ),
                 _buildNavItem(
                   context: context,
                   tabName: 'goals',
-                  label: 'goals',
+                  label: tr('goals'),
                   isActive: activeTab == 'goals',
                 ),
                 _buildNavItem(
                   context: context,
                   tabName: 'portfolio',
-                  label: 'portfolio',
+                  label: tr('portfolio'),
                   isActive: activeTab == 'portfolio',
                 ),
                 _buildNavItem(
                   context: context,
                   tabName: 'chat',
-                  label: 'chat',
+                  label: tr('chat'),
                   isActive: activeTab == 'chat',
                 ),
                 _buildNavItem(
                   context: context,
                   tabName: 'security',
-                  label: 'security',
+                  label: tr('security'),
                   isActive: activeTab == 'security',
                 ),
               ],
@@ -158,7 +218,9 @@ class FinixBottomNavigationBar extends StatelessWidget {
               width: 48,
               height: 48,
               decoration: BoxDecoration(
-                color: isActive ? const Color(0xFFEEF4FA) : const Color(0xFFF1F5F9),
+                color: isActive
+                    ? const Color(0xFFEEF4FA)
+                    : const Color(0xFFF1F5F9),
                 shape: BoxShape.circle,
               ),
               child: Center(
@@ -170,13 +232,24 @@ class FinixBottomNavigationBar extends StatelessWidget {
               ),
             ),
             const SizedBox(height: 4),
-            Text(
-              label,
-              style: GoogleFonts.inter(
-                fontSize: 11,
-                fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
-                color: isActive ? activeColor : inactiveColor,
-                letterSpacing: -0.11,
+            // The 48px icon plus this label exceeded the bar's inner height by
+            // 2px, painting the debug overflow stripes. Scaling the label down
+            // to fit also keeps the bar intact when the OS font size is
+            // increased, which would otherwise overflow it much further.
+            Flexible(
+              child: FittedBox(
+                fit: BoxFit.scaleDown,
+                child: Text(
+                  label,
+                  maxLines: 1,
+                  style: GoogleFonts.inter(
+                    fontSize: 11,
+                    height: 1.1,
+                    fontWeight: isActive ? FontWeight.w600 : FontWeight.w500,
+                    color: isActive ? activeColor : inactiveColor,
+                    letterSpacing: -0.11,
+                  ),
+                ),
               ),
             ),
           ],

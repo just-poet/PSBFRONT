@@ -1,9 +1,12 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:flutter/services.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 import '../main.dart';
 import '../services/api_service.dart';
+import '../services/hardware_service.dart';
 import 'ekyc.dart';
 import 'home_dashboard.dart';
 import 'smooth_route.dart';
@@ -22,7 +25,9 @@ class LoginCkycScreen extends StatefulWidget {
 }
 
 class _LoginCkycScreenState extends State<LoginCkycScreen> {
-  final _ckycController = TextEditingController();
+  /// Mobile number. Customers know their phone number; almost nobody knows
+  /// their CKYC number, which made the old field a barrier at the front door.
+  final _phoneController = TextEditingController();
   final _pinController = TextEditingController();
   final _pinFocus = FocusNode();
 
@@ -30,19 +35,20 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
   bool _obscurePin = true;
   String? _error;
 
-  static const int _ckycLength = 10;
+  /// Indian mobile numbers are ten digits; the +91 is fixed in the prefix.
+  static const int _phoneLength = 10;
   static const int _pinLength = 6;
 
   @override
   void dispose() {
-    _ckycController.dispose();
+    _phoneController.dispose();
     _pinController.dispose();
     _pinFocus.dispose();
     super.dispose();
   }
 
   bool get _canSubmit =>
-      _ckycController.text.trim().length == _ckycLength &&
+      _phoneController.text.trim().length == _phoneLength &&
       _pinController.text.trim().length == _pinLength &&
       !_busy;
 
@@ -55,8 +61,8 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
     });
 
     try {
-      final result = await ApiService.instance.loginWithCkyc(
-        _ckycController.text.trim(),
+      final result = await ApiService.instance.loginWithPhone(
+        _phoneController.text.trim(),
         _pinController.text.trim(),
       );
       if (!mounted) return;
@@ -73,9 +79,31 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
         ),
       );
 
+      // Biometric enrolment sits between authentication and the dashboard:
+      // the PIN proves the credential, the fingerprint binds the session to
+      // the person holding the phone. Skipped silently where the device has no
+      // sensor, so a customer on such a handset is not blocked at the door.
+      final outcome = await FinixBiometric.verify(
+        reason: 'Confirm your fingerprint to finish signing in',
+      );
+      if (!mounted) return;
+      if (outcome == BiometricOutcome.failed) {
+        setState(() {
+          _error = 'Fingerprint not recognised. Try again.';
+          _busy = false;
+        });
+        return;
+      }
+
       Navigator.pushAndRemoveUntil(
         context,
         SmoothPageRoute(
+          // The bottom navigation bar hides itself while the active tab is
+          // 'ekyc', which the navigator observer sets for the initial '/'
+          // route so the sign-in screen has no chrome. Without a route name
+          // here the observer never runs, the tab stays 'ekyc', and the bar
+          // stays hidden for the rest of the session.
+          settings: const RouteSettings(name: '/home'),
           builder: (_) => const MobileDeviceFrame(child: HomeDashboardScreen()),
         ),
         (route) => false,
@@ -97,7 +125,7 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
     final url = await showDialog<String>(
       context: context,
       builder: (dialogContext) => AlertDialog(
-        title: Text('API address',
+        title: Text(tr('API address'),
             style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
@@ -125,11 +153,11 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
         actions: [
           TextButton(
             onPressed: () => Navigator.pop(dialogContext),
-            child: Text('Cancel', style: GoogleFonts.inter(fontSize: 13)),
+            child: Text(tr('Cancel'), style: GoogleFonts.inter(fontSize: 13)),
           ),
           TextButton(
             onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
-            child: Text('Save',
+            child: Text(tr('Save'),
                 style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
           ),
         ],
@@ -210,7 +238,7 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
               ),
               const SizedBox(height: 22),
               Text(
-                'Sign in to FINIX',
+                tr('Sign in to FINIX'),
                 style: GoogleFonts.fraunces(
                   fontSize: 26,
                   fontWeight: FontWeight.w700,
@@ -228,15 +256,35 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
               ),
               const SizedBox(height: 28),
 
-              const _FieldLabel('CKYC NUMBER'),
+              const _FieldLabel('MOBILE NUMBER'),
               const SizedBox(height: 8),
               _InputBox(
+                // Country code shown as a fixed prefix rather than something to
+                // type: it is the same for every customer, and leaving it in
+                // the field is how people end up entering 12 digits.
+                child: Row(
+                  children: [
+                    Text(
+                      '+91',
+                      style: GoogleFonts.inter(
+                        fontSize: 17,
+                        fontWeight: FontWeight.w600,
+                        color: const Color(0xFF64748B),
+                      ),
+                    ),
+                    Container(
+                      width: 1,
+                      height: 20,
+                      margin: const EdgeInsets.symmetric(horizontal: 10),
+                      color: const Color(0xFFE2E8F0),
+                    ),
+                    Expanded(
                 child: TextField(
-                  controller: _ckycController,
-                  keyboardType: TextInputType.number,
+                  controller: _phoneController,
+                  keyboardType: TextInputType.phone,
                   inputFormatters: [
                     FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(_ckycLength),
+                    LengthLimitingTextInputFormatter(_phoneLength),
                   ],
                   autofocus: true,
                   textInputAction: TextInputAction.next,
@@ -251,7 +299,7 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
                   decoration: InputDecoration(
                     border: InputBorder.none,
                     isDense: true,
-                    hintText: '2000000001',
+                    hintText: '99836 92606',
                     hintStyle: GoogleFonts.inter(
                       color: const Color(0xFFCBD5E1),
                       letterSpacing: 2,
@@ -259,6 +307,9 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
                     ),
                     counterText: '',
                   ),
+                ),
+                    ),
+                  ],
                 ),
               ),
 
@@ -365,7 +416,7 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
                         ),
                       )
                     : Text(
-                        'Sign in',
+                        tr('Sign in'),
                         style: GoogleFonts.inter(
                           fontSize: 16,
                           fontWeight: FontWeight.w600,
@@ -381,20 +432,21 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
                       : () => Navigator.push(
                             context,
                             SmoothPageRoute(
+                              settings: const RouteSettings(name: '/ekyc'),
                               builder: (_) =>
                                   const MobileDeviceFrame(child: EkycScreen()),
                             ),
                           ),
                   child: Text.rich(
                     TextSpan(
-                      text: 'New to FINIX?  ',
+                      text: tr('New to FINIX?  '),
                       style: GoogleFonts.inter(
                         fontSize: 13,
                         color: const Color(0xFF64748B),
                       ),
                       children: [
                         TextSpan(
-                          text: 'Complete eKYC',
+                          text: tr('Complete eKYC'),
                           style: GoogleFonts.inter(
                             fontSize: 13,
                             fontWeight: FontWeight.w600,
@@ -426,7 +478,7 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
                     const SizedBox(width: 10),
                     Expanded(
                       child: Text(
-                        'Demo accounts: CKYC 2000000001 – 2000000010, PIN 123456. '
+                        'Demo: 9983692606 (Jiyad) or 6303891930 (Venkat), PIN 123456. '
                         'Tap to fill the first one.',
                         style: GoogleFonts.inter(
                           fontSize: 12,
@@ -439,7 +491,7 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
                       onPressed: _busy
                           ? null
                           : () => setState(() {
-                                _ckycController.text = '2000000001';
+                                _phoneController.text = '9983692606';
                                 _pinController.text = '123456';
                                 _error = null;
                               }),
@@ -449,7 +501,7 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
                         tapTargetSize: MaterialTapTargetSize.shrinkWrap,
                       ),
                       child: Text(
-                        'Fill',
+                        tr('Fill'),
                         style: GoogleFonts.inter(
                           fontSize: 12,
                           fontWeight: FontWeight.w700,

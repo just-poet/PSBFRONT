@@ -1,6 +1,9 @@
 import 'dart:async';
 
+import 'package:flutter/foundation.dart';
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:finix_dashboard/screens/smooth_route.dart';
 import 'package:google_fonts/google_fonts.dart';
 import 'package:image_picker/image_picker.dart';
@@ -9,6 +12,7 @@ import 'package:permission_handler/permission_handler.dart';
 
 import '../main.dart';
 import '../services/api_service.dart';
+import 'risk_warning.dart';
 import '../services/upi_qr.dart';
 import 'payment_success.dart';
 import 'pin_screen.dart';
@@ -45,11 +49,15 @@ class _ScanQrScreenState extends State<ScanQrScreen> with WidgetsBindingObserver
   bool _handlingCode = false;
   bool _decodingImage = false;
 
+  /// Shown on the risk warning as one of the signals the engine weighs.
+  int? _healthScore;
+
   @override
   void initState() {
     super.initState();
     WidgetsBinding.instance.addObserver(this);
     _initCamera();
+    _loadHealthScore();
   }
 
   @override
@@ -86,6 +94,13 @@ class _ScanQrScreenState extends State<ScanQrScreen> with WidgetsBindingObserver
     unawaited(controller.stop().catchError((_) {}));
   }
 
+  Future<void> _loadHealthScore() async {
+    final health = await ApiService.instance.getHealthScore();
+    if (!mounted) return;
+    setState(() =>
+        _healthScore = (health['score300To900'] as num?)?.toInt());
+  }
+
   Future<void> _initCamera() async {
     setState(() => _cameraState = _CameraState.checking);
 
@@ -95,9 +110,20 @@ class _ScanQrScreenState extends State<ScanQrScreen> with WidgetsBindingObserver
       if (!status.isGranted) {
         status = await Permission.camera.request();
       }
-    } catch (_) {
+    } catch (e) {
       // Desktop / web builds have no permission_handler implementation; let the
       // scanner itself decide whether a camera exists.
+      //
+      // On Android the plugin IS present, so an exception here means something
+      // genuinely went wrong. Assuming "granted" in that case skipped the OS
+      // prompt entirely and dropped the user onto a black viewfinder with no
+      // explanation — indistinguishable from the app simply never asking.
+      if (defaultTargetPlatform == TargetPlatform.android ||
+          defaultTargetPlatform == TargetPlatform.iOS) {
+        if (!mounted) return;
+        setState(() => _cameraState = _CameraState.denied);
+        return;
+      }
       status = PermissionStatus.granted;
     }
 
@@ -238,7 +264,7 @@ class _ScanQrScreenState extends State<ScanQrScreen> with WidgetsBindingObserver
           crossAxisAlignment: CrossAxisAlignment.start,
           children: [
             Text(
-              'Pay to Merchant',
+              tr('Pay to Merchant'),
               style: GoogleFonts.inter(
                 fontSize: 16,
                 fontWeight: FontWeight.w700,
@@ -372,7 +398,7 @@ class _ScanQrScreenState extends State<ScanQrScreen> with WidgetsBindingObserver
                 _confirmWithPin(payment, amount);
               },
               child: Text(
-                'Pay Now',
+                tr('Pay Now'),
                 style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w600),
               ),
             ),
@@ -394,7 +420,10 @@ class _ScanQrScreenState extends State<ScanQrScreen> with WidgetsBindingObserver
             title: 'Enter your 6-digit PIN',
             subtitle: '${payment.payeeName} · ${payment.payeeAddress}',
             amount: amount,
-            onSuccess: () => _submitPayment(payment, amount),
+            // The payment is sent and the risk verdict resolved here, before
+            // any success animation plays. Returning false stops the tick.
+            onAuthorise: () => _authorisePayment(payment, amount),
+            onSuccess: () => _showReceipt(payment, amount),
           ),
         ),
       ),
@@ -404,11 +433,17 @@ class _ScanQrScreenState extends State<ScanQrScreen> with WidgetsBindingObserver
   }
 
   /// Sends the payment to the backend and honours the risk engine's verdict.
-  Future<void> _submitPayment(UpiPayment payment, double amount) async {
+  /// Reference for the receipt, set once the payment settles.
+  String _reference = '';
+
+  /// Sends the payment and resolves the risk engine's verdict.
+  ///
+  /// Runs while the PIN screen shows "Authorising…", so a flagged payment
+  /// surfaces its warning *before* any success animation. Returns false when
+  /// the payment did not settle, which stops the tick from playing.
+  Future<bool> _authorisePayment(UpiPayment payment, double amount) async {
     final amountPaise = (amount * 100).round();
-    String reference = 'UPI${DateTime.now().millisecondsSinceEpoch % 100000000}';
-    bool blocked = false;
-    String? blockReason;
+    _reference = 'UPI${DateTime.now().millisecondsSinceEpoch % 100000000}';
 
     try {
       final result = await ApiService.instance.initiateTransaction(
@@ -418,40 +453,70 @@ class _ScanQrScreenState extends State<ScanQrScreen> with WidgetsBindingObserver
       );
 
       final txnId = (result['transactionId'] ?? '').toString();
-      if (txnId.isNotEmpty) reference = txnId;
+      if (txnId.isNotEmpty) _reference = txnId;
 
       final status = (result['status'] ?? '').toString();
       final stepUp = result['stepUpRequired'] == true;
 
       // The risk engine can demand step-up authentication before the debit is
-      // allowed to settle; satisfy it with the biometric/OTP override.
+      // allowed to settle.
+      //
+      // This used to auto-approve: it called override immediately with a
+      // hardcoded '123456' and biometricOk:true, so the customer was never
+      // shown that a payment looked risky and never actually authenticated.
+      // The hardcoded code did not match the generated OTP either, so those
+      // payments failed anyway.
       if (stepUp || status == 'warning_ack_required' || status == 'blocked') {
-        final override = await ApiService.instance.overrideTransaction(
-          transactionId: txnId,
-          otp: '123456',
-          biometricOk: true,
+        if (!mounted) return false;
+        final decision = await Navigator.of(context).push<RiskDecision>(
+          SmoothPageRoute(
+            settings: const RouteSettings(name: '/risk_warning'),
+            builder: (_) => MobileDeviceFrame(
+              child: RiskWarningScreen(
+                transactionId: txnId,
+                amountPaise: amountPaise,
+                recipient: payment.payeeName.isNotEmpty
+                    ? payment.payeeName
+                    : payment.payeeAddress,
+                riskScore: (result['riskScore'] as num?)?.toDouble() ?? 0,
+                riskLevel: (result['riskLevel'] ?? '').toString(),
+                reason: (result['xaiReason'] ?? '').toString(),
+                blocked: status == 'blocked',
+                healthScore: _healthScore,
+                requireOtp: result['requireOtp'] != false,
+                requireBiometric: result['requireBiometric'] != false,
+              ),
+            ),
+          ),
         );
-        final overrideStatus = (override['status'] ?? '').toString();
-        if (overrideStatus == 'blocked' || overrideStatus == 'failed') {
-          blocked = true;
-          blockReason = (result['xaiReason'] ?? 'Blocked by risk engine').toString();
+
+        if (decision != RiskDecision.proceeded) {
+          if (!mounted) return false;
+          ScaffoldMessenger.of(context).showSnackBar(
+            SnackBar(
+              content: Text(decision == RiskDecision.blocked
+                  ? tr('Payment blocked by the risk engine.')
+                  : tr('Payment cancelled. Nothing was debited.')),
+            ),
+          );
+          Navigator.pop(context); // close the PIN screen
+          _resumeScanning();
+          return false;
         }
       }
+      return true;
     } catch (_) {
       // Offline: ApiService already returns its mock result, so the demo keeps
-      // moving; nothing extra to do here.
+      // moving and the receipt still shows.
+      return true;
     }
+  }
 
+  /// Shown only after the payment has actually settled.
+  void _showReceipt(UpiPayment payment, double amount) {
     if (!mounted) return;
 
     Navigator.pop(context); // PinScreen
-
-    if (blocked) {
-      _showMessage(blockReason ?? 'Transaction blocked for your safety.');
-      _resumeScanning();
-      return;
-    }
-
     Navigator.pop(context); // ScanQrScreen
     Navigator.push(
       context,
@@ -463,7 +528,7 @@ class _ScanQrScreenState extends State<ScanQrScreen> with WidgetsBindingObserver
             amount: amount,
             fromAccount: 'HDFC ••• 8472',
             method: 'UPI',
-            referenceId: reference,
+            referenceId: _reference,
           ),
         ),
       ),
@@ -531,7 +596,7 @@ class _ScanQrScreenState extends State<ScanQrScreen> with WidgetsBindingObserver
                           top: cutoutTop + cutoutHeight + 16,
                           child: Center(
                             child: Text(
-                              'Align the QR code within the frame',
+                              tr('Align the QR code within the frame'),
                               style: GoogleFonts.inter(
                                 color: const Color(0xCCFFFFFF),
                                 fontSize: 12.5,
@@ -729,8 +794,8 @@ class _AppBar extends StatelessWidget {
               ),
             ),
           ),
-          const Text(
-            'Scan QR',
+          Text(
+            tr('Scan QR'),
             style: TextStyle(
               fontSize: 16,
               fontWeight: FontWeight.w600,

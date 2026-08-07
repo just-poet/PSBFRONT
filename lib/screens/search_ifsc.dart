@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class SearchIfscScreen extends StatefulWidget {
@@ -81,7 +83,7 @@ class _SearchIfscScreenState extends State<SearchIfscScreen> {
                         mainAxisAlignment: MainAxisAlignment.spaceBetween,
                         children: [
                           Text(
-                            'Recent Searches',
+                            tr('Recent Searches'),
                             style: GoogleFonts.inter(
                               fontSize: 13,
                               fontWeight: FontWeight.w600,
@@ -89,7 +91,7 @@ class _SearchIfscScreenState extends State<SearchIfscScreen> {
                             ),
                           ),
                           Text(
-                            'Manage',
+                            tr('Manage'),
                             style: GoogleFonts.inter(
                               fontSize: 12,
                               fontWeight: FontWeight.w600,
@@ -123,7 +125,7 @@ class _SearchIfscScreenState extends State<SearchIfscScreen> {
                           child: Padding(
                             padding: const EdgeInsets.only(top: 40.0),
                             child: Text(
-                              'No banks found.',
+                              tr('No banks found.'),
                               style: GoogleFonts.inter(
                                 fontSize: 14,
                                 color: const Color(0xFF94A3B8),
@@ -302,7 +304,7 @@ class _AppBar extends StatelessWidget {
             ),
           ),
           Text(
-            'Search for IFSC',
+            tr('Search for IFSC'),
             style: GoogleFonts.inter(
               fontSize: 20,
               fontWeight: FontWeight.w600,

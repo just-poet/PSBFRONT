@@ -1,6 +1,10 @@
 import 'dart:async';
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
+
+import '../services/api_service.dart';
 
 class AuditLogsScreen extends StatefulWidget {
   const AuditLogsScreen({super.key});
@@ -18,87 +22,124 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
   double _downloadProgress = 0.0;
 
   // Mock Audit Log Data Model
-  final List<AuditLogItem> _allLogs = [
-    AuditLogItem(
-      title: 'Transaction blocked by Risk Engine',
-      details: '₹85,000 to +91 98765 ••• 340 · Risk 78 / 100',
-      hash: '0x9b2c...4a7f',
-      time: '02:14:32 IST',
-      dateGroup: 'TODAY · 7 JUN 2026',
-      categories: ['Payments'],
-      icon: Icons.block_flipped,
-      iconColor: const Color(0xFFDC2626),
-      iconBgColor: const Color(0xFFDC2626).withOpacity(0.1),
-    ),
-    AuditLogItem(
-      title: 'SIP debit successful',
-      details: 'HDFC Bluechip · ₹5,000 · Ref HDFC8472',
-      hash: '0x6d4e...8c1b',
-      time: '10:00:14 IST',
-      dateGroup: 'TODAY · 7 JUN 2026',
-      categories: ['Payments'],
-      icon: Icons.check_circle_outline_rounded,
-      iconColor: const Color(0xFF16A34A),
-      iconBgColor: const Color(0xFF16A34A).withOpacity(0.1),
-    ),
-    AuditLogItem(
-      title: 'Biometric login',
-      details: 'Face ID · iPhone 14 Pro · Mumbai',
-      hash: '0x1f8a...d293',
-      time: '09:41:08 IST',
-      dateGroup: 'TODAY · 7 JUN 2026',
-      categories: ['Security'],
-      icon: Icons.face_unlock_rounded,
-      iconColor: const Color(0xFF2E75B6),
-      iconBgColor: const Color(0xFFEEF4FA),
-    ),
-    AuditLogItem(
-      title: 'Suspicious SMS flagged',
-      details: 'Sender +91 98765 ••• 210 · 6 risk signals',
-      hash: '0x3c5e...91ff',
-      time: '23:20:55 IST',
-      dateGroup: 'YESTERDAY · 6 JUN 2026',
-      categories: ['Security'],
-      icon: Icons.warning_amber_rounded,
-      iconColor: const Color(0xFFF59E0B),
-      iconBgColor: const Color(0xFFF59E0B).withOpacity(0.1),
-    ),
-    AuditLogItem(
-      title: 'PSB account synced via VA',
-      details: '6 transactions imported · Read-only consent',
-      hash: '0x4a7b...62de',
-      time: '16:32:11 IST',
-      dateGroup: 'YESTERDAY · 6 JUN 2026',
-      categories: ['Account', 'Consent'],
-      icon: Icons.credit_card_outlined,
-      iconColor: const Color(0xFF475569),
-      iconBgColor: const Color(0xFFF1F5F9),
-    ),
-    AuditLogItem(
-      title: 'Health score updated',
-      details: '758 → 782 · Liquidity pillar improved',
-      hash: '0x8e3d...07ac',
-      time: '04:00:00 IST',
-      dateGroup: 'YESTERDAY · 6 JUN 2026',
-      categories: ['Account', 'Security'],
-      icon: Icons.trending_up_rounded,
-      iconColor: const Color(0xFF16A34A),
-      iconBgColor: const Color(0xFF16A34A).withOpacity(0.1),
-      isGreenTitle: true,
-      scoreValue: '+24',
-    ),
-    AuditLogItem(
-      title: 'Consent renewed · Axis Bank',
-      details: 'Account Aggregator · Valid for 90 days',
-      hash: '0x2b9f...e431',
-      time: '05 Jun · 11:24',
-      dateGroup: 'EARLIER THIS WEEK',
-      categories: ['Consent'],
-      icon: Icons.assignment_turned_in_outlined,
-      iconColor: const Color(0xFF2E75B6),
-      iconBgColor: const Color(0xFFEEF4FA),
-    ),
+  // The audit trail is real: /v1/audit/logs returns this customer's actual
+  // sign-ins, freezes and payment decisions, tamper-evident and surviving a
+  // restart. This screen used to render a fixed list of invented events —
+  // a blocked ₹85,000 transfer, an HDFC SIP debit — identical for everyone.
+  List<AuditLogItem> _allLogs = [];
+  bool _loading = true;
+
+  @override
+  void initState() {
+    super.initState();
+    _load();
+  }
+
+  Future<void> _load() async {
+    final events = await ApiService.instance.getAuditLogs();
+    if (!mounted) return;
+    setState(() {
+      _allLogs = events.map(_toItem).toList();
+      _loading = false;
+    });
+  }
+
+  /// Maps a backend audit event onto the row this screen renders.
+  static AuditLogItem _toItem(Map<String, dynamic> e) {
+    final eventType = (e['eventType'] ?? '').toString();
+    final outcome = (e['outcome'] ?? '').toString().toLowerCase();
+    final at = DateTime.tryParse((e['timestamp'] ?? '').toString())?.toLocal();
+
+    final style = _styleFor(eventType, outcome);
+
+    return AuditLogItem(
+      sortKey: at ?? DateTime.fromMillisecondsSinceEpoch(0),
+      title: _titleFor(eventType, e),
+      details: (e['details'] ?? e['xaiReason'] ?? '').toString(),
+      // The backend exposes an event ID rather than a chain hash; showing the
+      // real identifier beats inventing a plausible-looking 0x… digest.
+      hash: (e['id'] ?? '').toString(),
+      time: _clock(at),
+      dateGroup: _group(at),
+      categories: [_categoryFor(eventType)],
+      icon: style.icon,
+      iconColor: style.colour,
+      iconBgColor: style.colour.withOpacity(0.1),
+      isGreenTitle: outcome == 'success' && style.colour == const Color(0xFF16A34A),
+    );
+  }
+
+  static ({IconData icon, Color colour}) _styleFor(String eventType, String outcome) {
+    if (outcome == 'failure' || outcome == 'blocked' || outcome == 'denied') {
+      return (icon: Icons.block_flipped, colour: const Color(0xFFDC2626));
+    }
+    if (eventType.contains('freeze')) {
+      return (icon: Icons.ac_unit_rounded, colour: const Color(0xFF2E75B6));
+    }
+    if (eventType.contains('login') || eventType.contains('auth')) {
+      return (icon: Icons.login_rounded, colour: const Color(0xFF16A34A));
+    }
+    if (eventType.contains('transaction') || eventType.contains('payment')) {
+      return (icon: Icons.swap_horiz_rounded, colour: const Color(0xFF16A34A));
+    }
+    if (eventType.contains('consent') || eventType.contains('kyc')) {
+      return (icon: Icons.verified_user_outlined, colour: const Color(0xFFC8A951));
+    }
+    return (icon: Icons.check_circle_outline_rounded, colour: const Color(0xFF16A34A));
+  }
+
+  /// Turns snake_case event types into something a customer can read.
+  static String _titleFor(String eventType, Map<String, dynamic> e) {
+    if (eventType.isEmpty) {
+      return (e['details'] ?? 'Account event').toString();
+    }
+    final words = eventType.split('_').where((w) => w.isNotEmpty).toList();
+    if (words.isEmpty) return eventType;
+    final first = words.first;
+    return ('${first[0].toUpperCase()}${first.substring(1)} ${words.skip(1).join(' ')}')
+        .trim();
+  }
+
+  static String _categoryFor(String eventType) {
+    if (eventType.contains('login') ||
+        eventType.contains('auth') ||
+        eventType.contains('freeze') ||
+        eventType.contains('device')) {
+      return 'Security';
+    }
+    if (eventType.contains('transaction') || eventType.contains('payment')) {
+      return 'Payments';
+    }
+    if (eventType.contains('consent') || eventType.contains('kyc')) {
+      return 'Consent';
+    }
+    return 'Account';
+  }
+
+  static String _clock(DateTime? at) {
+    if (at == null) return '--:--';
+    final h = at.hour.toString().padLeft(2, '0');
+    final m = at.minute.toString().padLeft(2, '0');
+    final sec = at.second.toString().padLeft(2, '0');
+    return '$h:$m:$sec IST';
+  }
+
+  static const _months = [
+    'JAN', 'FEB', 'MAR', 'APR', 'MAY', 'JUN',
+    'JUL', 'AUG', 'SEP', 'OCT', 'NOV', 'DEC',
   ];
+
+  static String _group(DateTime? at) {
+    if (at == null) return 'EARLIER';
+    final now = DateTime.now();
+    final date = DateTime(at.year, at.month, at.day);
+    final today = DateTime(now.year, now.month, now.day);
+    final label = '${at.day} ${_months[at.month - 1]} ${at.year}';
+    final diff = today.difference(date).inDays;
+    if (diff == 0) return 'TODAY · $label';
+    if (diff == 1) return 'YESTERDAY · $label';
+    return label;
+  }
 
   // Helper to trigger simulated download
   void _startDownload() {
@@ -152,11 +193,27 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
     }
 
     // Standard group ordering
-    final dateGroupsOrder = [
-      'TODAY · 7 JUN 2026',
-      'YESTERDAY · 6 JUN 2026',
-      'EARLIER THIS WEEK'
-    ];
+    // Derived from the data, newest first.
+    //
+    // This was a hardcoded list of three labels left over from the mock data
+    // ('TODAY · 7 JUN 2026'). The ListView iterates these group names, so once
+    // the screen started rendering real events — whose groups carry today's
+    // actual date — almost every entry fell outside the three and never drew.
+    final dateGroupsOrder = groupedLogs.keys.toList()
+      ..sort((a, b) {
+        // 'TODAY · …' and 'YESTERDAY · …' must lead; the rest are plain dates
+        // ordered by the newest event inside each group.
+        int rank(String g) => g.startsWith('TODAY')
+            ? 0
+            : g.startsWith('YESTERDAY')
+                ? 1
+                : 2;
+        final byRank = rank(a).compareTo(rank(b));
+        if (byRank != 0) return byRank;
+        final aNewest = groupedLogs[a]!.first.sortKey;
+        final bNewest = groupedLogs[b]!.first.sortKey;
+        return bNewest.compareTo(aNewest);
+      });
 
     return Scaffold(
       backgroundColor: const Color(0xFFF8FAFC),
@@ -176,6 +233,27 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                 _buildCategoryPills(),
 
                 // Grouped Scroll View (Figma node 640:5037)
+                if (_loading)
+                  const Expanded(
+                    child: Center(child: CircularProgressIndicator()),
+                  )
+                else if (_allLogs.isEmpty)
+                  Expanded(
+                    child: Center(
+                      child: Padding(
+                        padding: const EdgeInsets.all(32),
+                        child: Text(
+                          tr('No audit events recorded yet.'),
+                          textAlign: TextAlign.center,
+                          style: GoogleFonts.inter(
+                            fontSize: 13,
+                            color: const Color(0xFF64748B),
+                          ),
+                        ),
+                      ),
+                    ),
+                  )
+                else
                 Expanded(
                   child: ListView.builder(
                     physics: const BouncingScrollPhysics(),
@@ -252,7 +330,7 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
           ),
           // Center title
           Text(
-            'Audit Logs',
+            tr('Audit Logs'),
             style: GoogleFonts.inter(
               fontSize: 16,
               fontWeight: FontWeight.w600,
@@ -308,7 +386,7 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
                 crossAxisAlignment: CrossAxisAlignment.start,
                 children: [
                   Text(
-                    'MERKLE-VERIFIED',
+                    tr('MERKLE-VERIFIED'),
                     style: GoogleFonts.inter(
                       fontSize: 11,
                       fontWeight: FontWeight.bold,
@@ -541,6 +619,9 @@ class _AuditLogsScreenState extends State<AuditLogsScreen> {
 }
 
 class AuditLogItem {
+  /// When the event happened, used to order the date groups. The formatted
+  /// `time`/`dateGroup` strings are for display and cannot be sorted reliably.
+  final DateTime sortKey;
   final String title;
   final String details;
   final String hash;
@@ -554,6 +635,7 @@ class AuditLogItem {
   final String? scoreValue;
 
   const AuditLogItem({
+    required this.sortKey,
     required this.title,
     required this.details,
     required this.hash,

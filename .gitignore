@@ -43,3 +43,7 @@ app.*.map.json
 /android/app/debug
 /android/app/profile
 /android/app/release
+
+# Source archive of the splash artwork; the folder itself is committed and
+# the runtime copies live in assets/splash/.
+splash screen.zip

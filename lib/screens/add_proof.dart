@@ -1,4 +1,6 @@
 import 'package:flutter/material.dart';
+
+import '../services/locale_service.dart';
 import 'package:google_fonts/google_fonts.dart';
 
 class AddProofScreen extends StatefulWidget {
@@ -38,7 +40,7 @@ class _AddProofScreenState extends State<AddProofScreen> {
 
                     // Section Heading: Deduction sections
                     Text(
-                      'Deduction sections',
+                      tr('Deduction sections'),
                       style: GoogleFonts.inter(
                         fontSize: 12.5,
                         fontWeight: FontWeight.w600,
@@ -78,7 +80,7 @@ class _AddProofScreenState extends State<AddProofScreen> {
         children: [
           // Centered Title
           Text(
-            'Add Proof',
+            tr('Add Proof'),
             style: GoogleFonts.inter(
               fontSize: 15,
               fontWeight: FontWeight.w600,
@@ -407,7 +409,7 @@ class _AddProofScreenState extends State<AddProofScreen> {
                   ),
                   const SizedBox(height: 2),
                   Text(
-                    'Uploaded successfully • verified by AI',
+                    tr('Uploaded successfully • verified by AI'),
                     style: GoogleFonts.inter(
                       fontSize: 11,
                       fontWeight: FontWeight.w500,
@@ -441,7 +443,7 @@ class _AddProofScreenState extends State<AddProofScreen> {
         ),
         child: Center(
           child: Text(
-            '+ Upload a proof',
+            tr('+ Upload a proof'),
             style: GoogleFonts.inter(
               fontSize: 14,
               fontWeight: FontWeight.w600,
@@ -468,7 +470,7 @@ class _AddProofScreenState extends State<AddProofScreen> {
             crossAxisAlignment: CrossAxisAlignment.start,
             children: [
               Text(
-                'Upload Proof Document',
+                tr('Upload Proof Document'),
                 style: GoogleFonts.inter(
                   fontSize: 16,
                   fontWeight: FontWeight.w700,
@@ -483,7 +485,7 @@ class _AddProofScreenState extends State<AddProofScreen> {
                   child: const Icon(Icons.camera_alt_outlined, color: Color(0xFF0B2545)),
                 ),
                 title: Text(
-                  'Take Photo / Scan',
+                  tr('Take Photo / Scan'),
                   style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500, color: const Color(0xFF0A1628)),
                 ),
                 onTap: () {
@@ -513,7 +515,7 @@ class _AddProofScreenState extends State<AddProofScreen> {
                   child: const Icon(Icons.picture_as_pdf_outlined, color: Color(0xFF0B2545)),
                 ),
                 title: Text(
-                  'Upload PDF / Document',
+                  tr('Upload PDF / Document'),
                   style: GoogleFonts.inter(fontSize: 14, fontWeight: FontWeight.w500, color: const Color(0xFF0A1628)),
                 ),
                 onTap: () {
@@ -585,7 +587,7 @@ class _AddProofScreenState extends State<AddProofScreen> {
                     ),
                     const SizedBox(height: 18),
                     Text(
-                      'Uploading File',
+                      tr('Uploading File'),
                       style: GoogleFonts.inter(
                         fontSize: 14.5,
                         fontWeight: FontWeight.w600,

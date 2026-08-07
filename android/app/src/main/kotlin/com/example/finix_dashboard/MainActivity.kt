@@ -32,6 +32,27 @@ class MainActivity : FlutterFragmentActivity() {
 
     private companion object {
         const val DEVICE_CHANNEL = "com.finix.hardware/device"
+        const val APP_CHANNEL = "com.finix.hardware/app"
+    }
+
+    /**
+     * Blocks screenshots and screen recording, and keeps the app's contents out
+     * of the recent-apps thumbnail.
+     *
+     * FLAG_SECURE is the only mechanism Android offers for this. It covers the
+     * whole window, so balances, account numbers and the OTP/PIN screens cannot
+     * be captured by an on-device screenshot, a screen recorder, or a remote
+     * screen-sharing tool of the kind used in support scams.
+     *
+     * Set in onCreate, before any frame is drawn, so there is no window in
+     * which a capture could succeed.
+     */
+    override fun onCreate(savedInstanceState: android.os.Bundle?) {
+        window.setFlags(
+            android.view.WindowManager.LayoutParams.FLAG_SECURE,
+            android.view.WindowManager.LayoutParams.FLAG_SECURE,
+        )
+        super.onCreate(savedInstanceState)
     }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
@@ -48,6 +69,23 @@ class MainActivity : FlutterFragmentActivity() {
         // Hardware-backed biometric signing (see BiometricChannel).
         MethodChannel(flutterEngine.dartExecutor.binaryMessenger, BiometricChannel.CHANNEL)
             .setMethodCallHandler(BiometricChannel(this))
+
+        // Inbox access for the SMS fraud scanner (see SmsChannel).
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, SmsChannel.CHANNEL)
+            .setMethodCallHandler(SmsChannel(this))
+
+        // Full relaunch, used after a language change so every screen is
+        // rebuilt from scratch in the new language.
+        MethodChannel(flutterEngine.dartExecutor.binaryMessenger, APP_CHANNEL)
+            .setMethodCallHandler { call, result ->
+                when (call.method) {
+                    "restart" -> {
+                        result.success(true)
+                        restartApp()
+                    }
+                    else -> result.notImplemented()
+                }
+            }
     }
 
     /**
@@ -83,6 +121,30 @@ class MainActivity : FlutterFragmentActivity() {
             // test-keys build instead of trusting it blindly.
             "isEmulator" to isProbablyEmulator(),
         )
+    }
+
+    /**
+     * Closes the app and starts it again.
+     *
+     * Android gives no supported "restart myself" call, so this launches the
+     * launcher intent on a fresh task, clearing the old one, then ends the
+     * current process. [result] is returned to Dart *before* this runs, since
+     * the process will not survive long enough to reply afterwards.
+     */
+    private fun restartApp() {
+        val intent = packageManager.getLaunchIntentForPackage(packageName)
+        if (intent == null) {
+            // Nothing to relaunch into; leave the app running rather than
+            // killing it and stranding the user.
+            return
+        }
+        intent.addFlags(
+            android.content.Intent.FLAG_ACTIVITY_NEW_TASK or
+                android.content.Intent.FLAG_ACTIVITY_CLEAR_TASK,
+        )
+        startActivity(intent)
+        finish()
+        Runtime.getRuntime().exit(0)
     }
 
     /** Total (not free) space: capacity is a device trait, free space is not. */
