@@ -35,25 +35,23 @@ class MainActivity : FlutterFragmentActivity() {
         const val APP_CHANNEL = "com.finix.hardware/app"
     }
 
-    /**
-     * Blocks screenshots and screen recording, and keeps the app's contents out
-     * of the recent-apps thumbnail.
+    /*
+     * Screenshot and screen-recording blocking is currently off, at the
+     * product owner's request, so the app can be demonstrated and recorded.
      *
-     * FLAG_SECURE is the only mechanism Android offers for this. It covers the
-     * whole window, so balances, account numbers and the OTP/PIN screens cannot
-     * be captured by an on-device screenshot, a screen recorder, or a remote
-     * screen-sharing tool of the kind used in support scams.
+     * To restore it, set FLAG_SECURE here in onCreate — before super, so no
+     * frame is ever drawn without it:
      *
-     * Set in onCreate, before any frame is drawn, so there is no window in
-     * which a capture could succeed.
+     *     window.setFlags(
+     *         android.view.WindowManager.LayoutParams.FLAG_SECURE,
+     *         android.view.WindowManager.LayoutParams.FLAG_SECURE,
+     *     )
+     *
+     * FLAG_SECURE is the only mechanism Android offers for this, and it covers
+     * the whole window: balances, account numbers and the PIN screen. With it
+     * off, those are capturable by an on-device screenshot, a screen recorder,
+     * or a remote screen-sharing tool of the kind used in support scams.
      */
-    override fun onCreate(savedInstanceState: android.os.Bundle?) {
-        window.setFlags(
-            android.view.WindowManager.LayoutParams.FLAG_SECURE,
-            android.view.WindowManager.LayoutParams.FLAG_SECURE,
-        )
-        super.onCreate(savedInstanceState)
-    }
 
     override fun configureFlutterEngine(flutterEngine: FlutterEngine) {
         super.configureFlutterEngine(flutterEngine)
