@@ -4,6 +4,7 @@ import 'package:flutter_test/flutter_test.dart';
 import 'package:finix_dashboard/main.dart';
 import 'package:finix_dashboard/screens/bottom_nav_bar.dart';
 import 'package:finix_dashboard/screens/payment_success.dart';
+import 'package:finix_dashboard/screens/splash_screen.dart';
 
 /// Replaces the `flutter create` counter scaffold, which tested a counter app
 /// that never existed in this project and had been failing since day one.
@@ -20,6 +21,28 @@ void main() {
     await tester.pump(const Duration(seconds: 4));
     await tester.pumpAndSettle();
   }
+
+  testWidgets('the splash plays on launch and then hands off to sign-in',
+      (WidgetTester tester) async {
+    // The splash was written, its assets were precached in main(), and nothing
+    // ever mounted it: `home` pointed straight at the login screen, so the
+    // animation never played. Asserting the sign-in screen eventually appears
+    // is not enough — that passes with no splash at all — so this asserts the
+    // splash is actually on screen first.
+    await tester.pumpWidget(const FinixApp());
+    await tester.pump();
+    expect(find.byType(SplashScreen), findsOneWidget,
+        reason: 'the app must open on the splash');
+    expect(find.text('Sign in to FINIX'), findsNothing,
+        reason: 'and must not skip straight past it');
+
+    // The storyboard runs for 3s and then cross-fades.
+    await tester.pump(const Duration(seconds: 4));
+    await tester.pumpAndSettle();
+    expect(find.byType(SplashScreen), findsNothing,
+        reason: 'the splash must not linger once it has handed off');
+    expect(find.text('Sign in to FINIX'), findsOneWidget);
+  });
 
   testWidgets('app boots through the splash to the phone sign-in',
       (WidgetTester tester) async {

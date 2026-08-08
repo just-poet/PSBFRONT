@@ -186,7 +186,11 @@ class _FinixAppState extends State<FinixApp> {
         );
         return clamped;
       },
-      home: const LoginCkycScreen(),
+      // The splash runs its 3s storyboard on every cold start and then hands
+      // off to sign-in. It was built and its assets precached in main(), but
+      // nothing ever mounted it — `home` went straight to the login screen, so
+      // the animation never played.
+      home: SplashScreen(nextScreen: (_) => const LoginCkycScreen()),
     );
   }
 }
