@@ -7,7 +7,7 @@ import 'hardware_service.dart';
 
 /// Raised when the backend is reachable but rejects the request, or cannot be
 /// reached at all. Used by flows where silently returning mock data would be
-/// wrong — sign-in above all.
+/// wrong â€” sign-in above all.
 class ApiException implements Exception {
   final String message;
   ApiException(this.message);
@@ -26,19 +26,20 @@ class ApiService {
   ///
   /// An installed build then works on any network with no configuration. Empty
   /// when not supplied, in which case the per-platform default below is used.
-  static const String compiledBaseUrl = String.fromEnvironment('FINIX_BASE_URL');
+  static const String compiledBaseUrl =
+      String.fromEnvironment('FINIX_BASE_URL');
 
   /// Default API host, resolved per platform.
   ///
   /// On the Android emulator `localhost` is the emulated device itself, not the
-  /// developer machine — the host is reachable at the special alias 10.0.2.2.
+  /// developer machine â€” the host is reachable at the special alias 10.0.2.2.
   /// Using `localhost` there means every request fails and the app silently
   /// falls back to mock data. Web/desktop keep localhost.
   ///
   /// A build-time FINIX_BASE_URL always wins. Otherwise the address can be
   /// changed at runtime from the sign-in screen (or via [setBaseUrl]); for a
   /// plain-HTTP host on a phone, add it to
-  /// android/app/src/main/res/xml/network_security_config.xml — an https URL
+  /// android/app/src/main/res/xml/network_security_config.xml â€” an https URL
   /// (e.g. a tunnel) needs no such exemption.
   static String get defaultBaseUrl {
     if (compiledBaseUrl.isNotEmpty) return compiledBaseUrl;
@@ -65,7 +66,7 @@ class ApiService {
   /// backend regenerates its JWT signing secret on every restart, and access
   /// tokens only live 15 minutes, so a persisted token is very often dead. Each
   /// call would 401, fall into its `catch`/non-200 branch, and quietly return
-  /// mock or empty data — leaving someone stuck on a broken-looking dashboard
+  /// mock or empty data â€” leaving someone stuck on a broken-looking dashboard
   /// with no way to reach the login screen.
   final ValueNotifier<bool> sessionExpired = ValueNotifier<bool>(false);
 
@@ -112,7 +113,7 @@ class ApiService {
   /// Display name of the signed-in customer.
   ///
   /// The dashboard, profile and personal-details screens previously hardcoded
-  /// "Venkat A", so every account looked like the same person — with ten demo
+  /// "Venkat A", so every account looked like the same person â€” with ten demo
   /// logins that is immediately visible. Nothing called getProfile(), so the
   /// app never knew who was signed in. The login response already carries the
   /// name, so it is captured there and exposed here for widgets to observe.
@@ -152,7 +153,7 @@ class ApiService {
 
     // A build-time FINIX_BASE_URL must beat whatever an earlier install stored.
     // Previously the stored value always won, so handing someone a new APK
-    // pointing at a new tunnel changed nothing — the app kept calling the dead
+    // pointing at a new tunnel changed nothing â€” the app kept calling the dead
     // URL from the previous build, which is indistinguishable from the backend
     // being down. Only a URL the user typed in themselves survives, and only
     // when this build did not pin one.
@@ -213,7 +214,7 @@ class ApiService {
   /// How long the health check waits before declaring the backend unreachable.
   ///
   /// This was 2 seconds, which is fine on a LAN but far too short once the API
-  /// is reached over a tunnel or mobile data — a first request through a tunnel
+  /// is reached over a tunnel or mobile data â€” a first request through a tunnel
   /// measured ~9s here (TLS plus cold relay). The app would report "offline"
   /// and every screen would silently render mock data against a backend that
   /// was working perfectly.
@@ -234,9 +235,10 @@ class ApiService {
     }
   }
 
-  // ─── Headers and Helpers ───────────────────────────────────────────
+  // â”€â”€â”€ Headers and Helpers â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
-  Map<String, String> _headers({bool requireAuth = true, bool isMutation = false}) {
+  Map<String, String> _headers(
+      {bool requireAuth = true, bool isMutation = false}) {
     final Map<String, String> headers = {
       'Content-Type': 'application/json',
       'X-Device-Fingerprint': deviceIdFingerprint ?? '',
@@ -267,10 +269,10 @@ class ApiService {
     return '${hex.substring(0, 8)}-${hex.substring(8, 12)}-${hex.substring(12, 16)}-${hex.substring(16, 20)}-${hex.substring(20)}';
   }
 
-  // ─── API Methods with Graceful Mock Fallbacks ─────────────────────
+  // â”€â”€â”€ API Methods with Graceful Mock Fallbacks â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€â”€
 
   // 1. Authentication
-  
+
   Future<Map<String, dynamic>> register({
     String? name,
     required String mobile,
@@ -280,7 +282,8 @@ class ApiService {
       if (name != null) 'name': name,
       'mobile': mobile,
       if (email != null) 'email': email,
-      'deviceIdFingerprint': deviceIdFingerprint ?? 'simulated-fingerprint-uuid',
+      'deviceIdFingerprint':
+          deviceIdFingerprint ?? 'simulated-fingerprint-uuid',
       'deviceType': 'Web/Android Simulator',
       'appVersion': '1.0.0',
     };
@@ -421,7 +424,7 @@ class ApiService {
   /// works without any real mobile. The backend resolves the CKYC to an account
   /// and returns a short-lived JWT, which is stored for subsequent calls.
   ///
-  /// Throws [ApiException] on a rejected login so the UI can show the reason —
+  /// Throws [ApiException] on a rejected login so the UI can show the reason â€”
   /// unlike the read-only getters, a failed sign-in must NOT fall through to
   /// mock data and pretend the user is authenticated.
   /// Signs in with a mobile number.
@@ -495,7 +498,8 @@ class ApiService {
     }
 
     isConnected.value = true; // reachable, just rejected
-    throw ApiException(_errorMessage(response.body, 'Invalid CKYC number or PIN.'));
+    throw ApiException(
+        _errorMessage(response.body, 'Invalid CKYC number or PIN.'));
   }
 
   /// Pulls a human-readable message out of the backend's {"error": "..."} body.
@@ -535,7 +539,7 @@ class ApiService {
   }
 
   // 2. Portfolio & Net Worth
-  
+
   /// KYC-locked identity: legal name, DOB, masked PAN/Aadhaar, KYC status and
   /// date, occupation and declared income. Feeds the Personal Details screen,
   /// which previously hardcoded a name, DOB, PAN and address.
@@ -571,7 +575,7 @@ class ApiService {
   /// SMS gateway; in production it only confirms that an SMS was sent.
   /// Verifies the customer's PIN.
   ///
-  /// The PIN entry screen accepted any six digits — it never checked them — so
+  /// The PIN entry screen accepted any six digits â€” it never checked them â€” so
   /// the app's own PIN gate was decorative and an unfreeze or a payment could
   /// be authorised by anyone holding the phone. There is no dedicated verify
   /// endpoint, so this re-authenticates with the signed-in customer's cKYC:
@@ -726,9 +730,9 @@ class ApiService {
     // Mock Fallback
     isConnected.value = false;
     return {
-      'totalAssets': 255265000,      // in paise (₹2,552,650)
-      'totalLiabilities': 6500000,    // in paise (₹65,000)
-      'netWorth': 248765000,         // in paise (₹2,487,650)
+      'totalAssets': 255265000, // in paise (â‚¹2,552,650)
+      'totalLiabilities': 6500000, // in paise (â‚¹65,000)
+      'netWorth': 248765000, // in paise (â‚¹2,487,650)
       'assets': [
         {'name': 'Mutual Funds', 'valuePaise': 125000000},
         {'name': 'Direct Stocks', 'valuePaise': 80000000},
@@ -760,12 +764,42 @@ class ApiService {
       'score300To900': 785,
       'band': 'Excellent',
       'pillars': [
-        {'name': 'Emergency Fund', 'score': 90, 'status': 'Optimal', 'metric': '4.5 months'},
-        {'name': 'Debt-to-Income', 'score': 85, 'status': 'Healthy', 'metric': '12.4%'},
-        {'name': 'Savings Rate', 'score': 78, 'status': 'Moderate', 'metric': '24%'},
-        {'name': 'Diversification', 'score': 72, 'status': 'Healthy', 'metric': '72/100'},
-        {'name': 'Insurance Coverage', 'score': 68, 'status': 'Under-insured', 'metric': '68/100'},
-        {'name': 'Goals Alignment', 'score': 88, 'status': 'On Track', 'metric': '70%'},
+        {
+          'name': 'Emergency Fund',
+          'score': 90,
+          'status': 'Optimal',
+          'metric': '4.5 months'
+        },
+        {
+          'name': 'Debt-to-Income',
+          'score': 85,
+          'status': 'Healthy',
+          'metric': '12.4%'
+        },
+        {
+          'name': 'Savings Rate',
+          'score': 78,
+          'status': 'Moderate',
+          'metric': '24%'
+        },
+        {
+          'name': 'Diversification',
+          'score': 72,
+          'status': 'Healthy',
+          'metric': '72/100'
+        },
+        {
+          'name': 'Insurance Coverage',
+          'score': 68,
+          'status': 'Under-insured',
+          'metric': '68/100'
+        },
+        {
+          'name': 'Goals Alignment',
+          'score': 88,
+          'status': 'On Track',
+          'metric': '70%'
+        },
       ],
       'recommendations': [
         'Increase insurance coverage to cover at least 10x your annual income.',
@@ -780,7 +814,8 @@ class ApiService {
   Future<Map<String, dynamic>> getMarketSnapshot() async {
     try {
       final response = await _client
-          .get(Uri.parse('$baseUrl/v1/dashboard/market-snapshot'), headers: _headers())
+          .get(Uri.parse('$baseUrl/v1/dashboard/market-snapshot'),
+              headers: _headers())
           .timeout(connectionTimeout);
       if (response.statusCode == 200) {
         isConnected.value = true;
@@ -824,7 +859,7 @@ class ApiService {
   }
 
   // 3. Bank Accounts & Aggregator
-  
+
   Future<List<Map<String, dynamic>>> getAccounts() async {
     try {
       final response = await _client.get(
@@ -844,7 +879,7 @@ class ApiService {
       {
         'accountId': 'acc_sbi_01',
         'bankName': 'State Bank of India',
-        'balance': 28745000, // paise (₹2,87,450)
+        'balance': 28745000, // paise (â‚¹2,87,450)
         'accountType': 'Savings',
         'upiId': 'aditya@sbi',
         'accountNumber': '*******5421',
@@ -853,7 +888,7 @@ class ApiService {
       {
         'accountId': 'acc_hdfc_01',
         'bankName': 'HDFC Bank',
-        'balance': 18472000, // paise (₹1,84,720)
+        'balance': 18472000, // paise (â‚¹1,84,720)
         'accountType': 'Savings',
         'upiId': 'aditya@hdfc',
         'accountNumber': '*******9088',
@@ -862,7 +897,7 @@ class ApiService {
       {
         'accountId': 'acc_icici_01',
         'bankName': 'ICICI Bank',
-        'balance': 8425000, // paise (₹84,250)
+        'balance': 8425000, // paise (â‚¹84,250)
         'accountType': 'Savings',
         'upiId': 'aditya@icici',
         'accountNumber': '*******2211',
@@ -871,7 +906,7 @@ class ApiService {
       {
         'accountId': 'acc_axis_01',
         'bankName': 'Axis Bank',
-        'balance': 2850000, // paise (₹28,500)
+        'balance': 2850000, // paise (â‚¹28,500)
         'accountType': 'Current',
         'upiId': 'aditya@axis',
         'accountNumber': '*******8765',
@@ -892,8 +927,8 @@ class ApiService {
       'accountHolderName': holderName,
       'bankName': bankName,
       'upiId': upiId,
-      'maskedAccount': accountNumber.length > 4 
-          ? '*******${accountNumber.substring(accountNumber.length - 4)}' 
+      'maskedAccount': accountNumber.length > 4
+          ? '*******${accountNumber.substring(accountNumber.length - 4)}'
           : accountNumber,
       'ifscCode': ifscCode,
       'accountType': accountType,
@@ -916,9 +951,10 @@ class ApiService {
     // Mock Fallback
     isConnected.value = false;
     return {
-      'accountId': 'acc_${bankName.toLowerCase().replaceAll(' ', '_')}_${Random().nextInt(100)}',
+      'accountId':
+          'acc_${bankName.toLowerCase().replaceAll(' ', '_')}_${Random().nextInt(100)}',
       'bankName': bankName,
-      'balance': 5000000, // default ₹50,000 in paise
+      'balance': 5000000, // default â‚¹50,000 in paise
       'accountType': accountType,
       'upiId': upiId,
       'accountNumber': body['maskedAccount'],
@@ -942,10 +978,30 @@ class ApiService {
     // Mock Fallback
     isConnected.value = false;
     return [
-      {'beneficiaryId': 'ben_1', 'name': 'Akash Patel', 'upiId': 'akash@ybl', 'trustScore': 98},
-      {'beneficiaryId': 'ben_2', 'name': 'Pooja Roy', 'upiId': 'pooja@okhdfc', 'trustScore': 95},
-      {'beneficiaryId': 'ben_3', 'name': 'Venkat Raman', 'upiId': 'venkat@icici', 'trustScore': 87},
-      {'beneficiaryId': 'ben_4', 'name': 'Jiyad', 'upiId': 'jiyad@sbi', 'trustScore': 99},
+      {
+        'beneficiaryId': 'ben_1',
+        'name': 'Akash Patel',
+        'upiId': 'akash@ybl',
+        'trustScore': 98
+      },
+      {
+        'beneficiaryId': 'ben_2',
+        'name': 'Pooja Roy',
+        'upiId': 'pooja@okhdfc',
+        'trustScore': 95
+      },
+      {
+        'beneficiaryId': 'ben_3',
+        'name': 'Venkat Raman',
+        'upiId': 'venkat@psb',
+        'trustScore': 87
+      },
+      {
+        'beneficiaryId': 'ben_4',
+        'name': 'Jiyad',
+        'upiId': 'jiyad@psb',
+        'trustScore': 99
+      },
     ];
   }
 
@@ -985,7 +1041,7 @@ class ApiService {
   }
 
   // 4. Transactions & Payments
-  
+
   Future<List<Map<String, dynamic>>> getTransactionHistory() async {
     try {
       final response = await _client.get(
@@ -1006,37 +1062,41 @@ class ApiService {
         'id': 'txn_01',
         'merchantName': 'Zomato Food Delivery',
         'category': 'Food & Dining',
-        'amountPaise': 74500, // ₹745.00
+        'amountPaise': 74500, // â‚¹745.00
         'type': 'debit',
         'status': 'success',
-        'timestamp': DateTime.now().subtract(const Duration(hours: 2)).toIso8601String(),
+        'timestamp':
+            DateTime.now().subtract(const Duration(hours: 2)).toIso8601String(),
       },
       {
         'id': 'txn_02',
         'merchantName': 'Salary Credited',
         'category': 'Income',
-        'amountPaise': 18000000, // ₹1,80,000.00
+        'amountPaise': 18000000, // â‚¹1,80,000.00
         'type': 'credit',
         'status': 'success',
-        'timestamp': DateTime.now().subtract(const Duration(days: 1)).toIso8601String(),
+        'timestamp':
+            DateTime.now().subtract(const Duration(days: 1)).toIso8601String(),
       },
       {
         'id': 'txn_03',
         'merchantName': 'Airtel Broadband Payment',
         'category': 'Utilities',
-        'amountPaise': 117900, // ₹1,179.00
+        'amountPaise': 117900, // â‚¹1,179.00
         'type': 'debit',
         'status': 'success',
-        'timestamp': DateTime.now().subtract(const Duration(days: 3)).toIso8601String(),
+        'timestamp':
+            DateTime.now().subtract(const Duration(days: 3)).toIso8601String(),
       },
       {
         'id': 'txn_04',
         'merchantName': 'Gold SIP Contribution',
         'category': 'Investment',
-        'amountPaise': 500000, // ₹5,000.00
+        'amountPaise': 500000, // â‚¹5,000.00
         'type': 'debit',
         'status': 'success',
-        'timestamp': DateTime.now().subtract(const Duration(days: 5)).toIso8601String(),
+        'timestamp':
+            DateTime.now().subtract(const Duration(days: 5)).toIso8601String(),
       }
     ];
   }
@@ -1070,7 +1130,7 @@ class ApiService {
       }
     } catch (_) {}
 
-    // Mock Fallback: Trigger stepUpRequired for large amounts (> ₹10,000)
+    // Mock Fallback: Trigger stepUpRequired for large amounts (> â‚¹10,000)
     isConnected.value = false;
     final isLargeTxn = amountPaise > 1000000;
     return {
@@ -1078,7 +1138,9 @@ class ApiService {
       'status': isLargeTxn ? 'warning_ack_required' : 'success',
       'riskLevel': isLargeTxn ? 'high' : 'low',
       'stepUpRequired': isLargeTxn,
-      'xaiReason': isLargeTxn ? 'Amount is 4x your daily average; new recipient detected.' : 'Transaction normal.',
+      'xaiReason': isLargeTxn
+          ? 'Amount is 4x your daily average; new recipient detected.'
+          : 'Transaction normal.',
     };
   }
 
@@ -1116,7 +1178,7 @@ class ApiService {
   }
 
   // 5. Goals
-  
+
   Future<List<Map<String, dynamic>>> getGoals() async {
     try {
       final response = await _client.get(
@@ -1137,9 +1199,10 @@ class ApiService {
         'goalId': 'goal_01',
         'name': 'Emergency Reserve Fund',
         'description': 'Keep 6 months of living expenses secure.',
-        'targetAmountPaise': 30000000, // ₹3,00,000
-        'savedAmountPaise': 22500000,  // ₹2,25,000
-        'targetDate': DateTime.now().add(const Duration(days: 120)).toIso8601String(),
+        'targetAmountPaise': 30000000, // â‚¹3,00,000
+        'savedAmountPaise': 22500000, // â‚¹2,25,000
+        'targetDate':
+            DateTime.now().add(const Duration(days: 120)).toIso8601String(),
         'monthlyContributionPaise': 1500000,
         'frequency': 'monthly',
         'priority': 'high',
@@ -1149,10 +1212,11 @@ class ApiService {
       {
         'goalId': 'goal_02',
         'name': 'Down Payment - Electric Car',
-        'description': 'Targeting ₹5L by mid next year.',
-        'targetAmountPaise': 50000000, // ₹5,00,000
-        'savedAmountPaise': 15000000,  // ₹1,50,000
-        'targetDate': DateTime.now().add(const Duration(days: 300)).toIso8601String(),
+        'description': 'Targeting â‚¹5L by mid next year.',
+        'targetAmountPaise': 50000000, // â‚¹5,00,000
+        'savedAmountPaise': 15000000, // â‚¹1,50,000
+        'targetDate':
+            DateTime.now().add(const Duration(days: 300)).toIso8601String(),
         'monthlyContributionPaise': 2500000,
         'frequency': 'monthly',
         'priority': 'medium',
@@ -1211,7 +1275,8 @@ class ApiService {
     };
   }
 
-  Future<Map<String, dynamic>> contributeToGoal(String goalId, int amountPaise) async {
+  Future<Map<String, dynamic>> contributeToGoal(
+      String goalId, int amountPaise) async {
     final body = {'amountPaise': amountPaise};
     try {
       final response = await _client.post(
@@ -1280,7 +1345,7 @@ class ApiService {
   }
 
   // 6. AI Chatbot
-  
+
   Future<Map<String, dynamic>> chatbotQuery({
     required String prompt,
     String? chatId,
@@ -1304,18 +1369,26 @@ class ApiService {
 
     // Mock Fallback
     isConnected.value = false;
-    String reply = "I am processing your request. It looks like the FINIX AI RAG Service is currently offline. As a fallback: ";
+    String reply =
+        "I am processing your request. It looks like the FINIX AI RAG Service is currently offline. As a fallback: ";
     List<String> suggestions = [];
-    
+
     final pLower = prompt.toLowerCase();
     if (pLower.contains('npa') || pLower.contains('sbi')) {
-      reply += "As of the latest reports, State Bank of India (SBI) reported a Gross NPA ratio of 2.42%, indicating strong asset quality and robust risk management controls.";
+      reply +=
+          "As of the latest reports, State Bank of India (SBI) reported a Gross NPA ratio of 2.42%, indicating strong asset quality and robust risk management controls.";
       suggestions = ["Compare with HDFC", "What are NPAs?", "View Risk Graph"];
     } else if (pLower.contains('tax') || pLower.contains('regime')) {
-      reply += "Under the new tax regime (FY 2026-27), tax slabs are structured to benefit middle-income earners. The rebate limit under section 87A has been enhanced, making income up to ₹7,00,000 completely tax-free.";
-      suggestions = ["Old vs New Slabs", "Calculate my tax", "List 80C options"];
+      reply +=
+          "Under the new tax regime (FY 2026-27), tax slabs are structured to benefit middle-income earners. The rebate limit under section 87A has been enhanced, making income up to â‚¹7,00,000 completely tax-free.";
+      suggestions = [
+        "Old vs New Slabs",
+        "Calculate my tax",
+        "List 80C options"
+      ];
     } else {
-      reply += "I'm your secure AI financial assistant. I can help you analyze your portfolio, calculate tax under the Old vs New regime, track security logs, or optimize loans. Please let me know how I can guide you today.";
+      reply +=
+          "I'm your secure AI financial assistant. I can help you analyze your portfolio, calculate tax under the Old vs New regime, track security logs, or optimize loans. Please let me know how I can guide you today.";
       suggestions = ["Optimize Loans", "Tax Dashboard", "Security Health"];
     }
 
@@ -1328,7 +1401,7 @@ class ApiService {
   }
 
   // 7. Security Controls
-  
+
   /// Refreshes [accountFrozen] from the backend's own state.
   Future<void> refreshFreezeState() async {
     final health = await getSecurityHealth();
@@ -1354,15 +1427,14 @@ class ApiService {
     return {
       'account_frozen': false,
       'compliance_status': 'Compliant',
-      'last_security_scan_at': DateTime.now().subtract(const Duration(minutes: 45)).toIso8601String(),
+      'last_security_scan_at': DateTime.now()
+          .subtract(const Duration(minutes: 45))
+          .toIso8601String(),
     };
   }
 
   Future<Map<String, dynamic>> emergencyFreeze(String reason) async {
-    final body = {
-      'reason': reason,
-      'verificationMethod': 'biometric'
-    };
+    final body = {'reason': reason, 'verificationMethod': 'biometric'};
 
     try {
       final response = await _client.post(
@@ -1405,7 +1477,7 @@ class ApiService {
   }
 
   // 8. Tax Centre
-  
+
   Future<Map<String, dynamic>> getTaxDashboard() async {
     try {
       final response = await _client.get(
@@ -1421,9 +1493,9 @@ class ApiService {
     // Mock Fallback
     isConnected.value = false;
     return {
-      'taxableIncome': 240000000, // ₹24,00,000 in paise
-      'taxPayable': 32000000,    // ₹3,20,000 in paise
-      'deductions': 45000000,     // ₹4,50,000 in paise
+      'taxableIncome': 240000000, // â‚¹24,00,000 in paise
+      'taxPayable': 32000000, // â‚¹3,20,000 in paise
+      'deductions': 45000000, // â‚¹4,50,000 in paise
       'regime': 'new',
     };
   }
@@ -1446,6 +1518,60 @@ class ApiService {
     } catch (_) {}
     isConnected.value = false;
     return const [];
+  }
+
+  /// The caps the backend actually enforces on outgoing payments.
+  ///
+  /// The settings sheet used to list four figures hardcoded in Dart, and three
+  /// of the four had nothing behind them. Returns an empty map when the server
+  /// cannot be reached, so callers can hide the sheet rather than invent
+  /// numbers.
+  Future<Map<String, dynamic>> getTransactionLimits() async {
+    try {
+      final response = await _client.get(
+        Uri.parse('$baseUrl/v1/transaction-limits'),
+        headers: _headers(requireAuth: true),
+      );
+      if (response.statusCode == 200) {
+        isConnected.value = true;
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map<String, dynamic>) return decoded;
+      }
+    } catch (_) {}
+    isConnected.value = false;
+    return const {};
+  }
+
+  /// Confirms the customer's CKYC Identifier Number during first-time
+  /// onboarding.
+  ///
+  /// Returns null on success, or a message to show the customer. Runs against
+  /// the signed-in session, so it can only confirm the identity already held.
+  Future<String?> verifyKin(String kin) async {
+    try {
+      final response = await _client.post(
+        Uri.parse('$baseUrl/v1/auth/verify-kin'),
+        headers: _headers(requireAuth: true),
+        body: jsonEncode({'kin': kin}),
+      );
+      if (response.statusCode == 200) {
+        isConnected.value = true;
+        return null;
+      }
+      isConnected.value = true;
+      try {
+        final decoded = jsonDecode(response.body);
+        if (decoded is Map && decoded['error'] is String) {
+          return decoded['error'] as String;
+        }
+        if (decoded is Map && decoded['message'] is String) {
+          return decoded['message'] as String;
+        }
+      } catch (_) {}
+      return 'We could not confirm that KIN. Please check and try again.';
+    } catch (_) {}
+    isConnected.value = false;
+    return 'We could not reach the bank. Check your connection and try again.';
   }
 
   Future<Map<String, dynamic>> getTaxRegimeComparison() async {
@@ -1478,7 +1604,7 @@ class ApiService {
   }
 
   // 9. Portfolio Subcomponents
-  
+
   Future<List<Map<String, dynamic>>> getInvestments() async {
     try {
       final response = await _client.get(
@@ -1532,7 +1658,7 @@ class ApiService {
     isConnected.value = false;
     return {
       'totalLifeCoverPaise': 10000000000, // 1 Crore in paise
-      'totalHealthCoverPaise': 100000000,  // 10 Lakhs in paise
+      'totalHealthCoverPaise': 100000000, // 10 Lakhs in paise
       'policies': [
         {
           'id': 'pol_01',
@@ -1573,16 +1699,16 @@ class ApiService {
       {
         'loanId': 'loan_01',
         'lender': 'SBI Home Finance',
-        'outstandingPaise': 452485000, // ₹45,24,850 in paise
-        'emiPaise': 3850000,           // ₹38,500 in paise
+        'outstandingPaise': 452485000, // â‚¹45,24,850 in paise
+        'emiPaise': 3850000, // â‚¹38,500 in paise
         'interestRate': 8.4,
         'tenureRemainingMonths': 144,
       },
       {
         'loanId': 'loan_02',
         'lender': 'HDFC Auto Loan',
-        'outstandingPaise': 68500000,  // ₹6,85,000 in paise
-        'emiPaise': 1420000,           // ₹14,200 in paise
+        'outstandingPaise': 68500000, // â‚¹6,85,000 in paise
+        'emiPaise': 1420000, // â‚¹14,200 in paise
         'interestRate': 9.2,
         'tenureRemainingMonths': 36,
       }

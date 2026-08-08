@@ -26,7 +26,6 @@ class ProfileScreen extends StatefulWidget {
 }
 
 class _ProfileScreenState extends State<ProfileScreen> {
-
   // Identity shown in the header. The email was the literal
   // "venkat.a@finix.in" and the footer read "Member since March 2025 · SBI
   // primary" for every account, so the settings page described one person no
@@ -46,8 +45,18 @@ class _ProfileScreenState extends State<ProfileScreen> {
   }
 
   static const _monthNames = [
-    'January', 'February', 'March', 'April', 'May', 'June',
-    'July', 'August', 'September', 'October', 'November', 'December',
+    'January',
+    'February',
+    'March',
+    'April',
+    'May',
+    'June',
+    'July',
+    'August',
+    'September',
+    'October',
+    'November',
+    'December',
   ];
 
   /// "Member since March 2025", from the account's real creation date.
@@ -79,7 +88,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
         ),
         content: Text(
           tr('You will need your cKYC number and PIN to sign back in.'),
-          style: GoogleFonts.inter(fontSize: 13, color: const Color(0xFF475569)),
+          style:
+              GoogleFonts.inter(fontSize: 13, color: const Color(0xFF475569)),
         ),
         actions: [
           TextButton(
@@ -153,7 +163,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
             Expanded(
               child: SingleChildScrollView(
                 physics: const BouncingScrollPhysics(),
-                padding: const EdgeInsets.symmetric(horizontal: 20.0, vertical: 12.0),
+                padding: const EdgeInsets.symmetric(
+                    horizontal: 20.0, vertical: 12.0),
                 child: Column(
                   crossAxisAlignment: CrossAxisAlignment.start,
                   children: [
@@ -169,21 +180,24 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         icon: Icons.person_outline_rounded,
                         title: tr('Personal details'),
                         subtitle: tr('Name, PAN, Aadhaar, address'),
-                        onTap: () => _navigateToScreen(const PersonalDetailsScreen(), '/personal_details'),
+                        onTap: () => _navigateToScreen(
+                            const PersonalDetailsScreen(), '/personal_details'),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.credit_card_outlined,
                         title: tr('Linked accounts'),
                         subtitle: '4 banks · via Account Aggregator',
-                        onTap: () => _navigateToScreen(const LinkedAccountsScreen(), '/linked_accounts'),
+                        onTap: () => _navigateToScreen(
+                            const LinkedAccountsScreen(), '/linked_accounts'),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
                         icon: Icons.people_outline_rounded,
                         title: tr('Nominees & Trust Circle'),
                         subtitle: '2 nominees · 1 co-approver above ₹50,000',
-                        onTap: () => _navigateToScreen(const UpdateNomineeScreen(), '/update_nominee'),
+                        onTap: () => _navigateToScreen(
+                            const UpdateNomineeScreen(), '/update_nominee'),
                       ),
                     ]),
                     const SizedBox(height: 24),
@@ -211,8 +225,10 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       _buildMenuItem(
                         icon: Icons.shield_outlined,
                         title: tr('Security Corner'),
-                        subtitle: tr('Risk gate, SMS scanner, emergency freeze'),
-                        onTap: () => _navigateToScreen(const SecurityScreen(), '/security'),
+                        subtitle:
+                            tr('Risk gate, SMS scanner, emergency freeze'),
+                        onTap: () => _navigateToScreen(
+                            const SecurityScreen(), '/security'),
                       ),
                     ]),
                     const SizedBox(height: 24),
@@ -227,7 +243,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         subtitle: '3 active · 1 expires in 12 days',
                         onTap: () {
                           ScaffoldMessenger.of(context).showSnackBar(
-                            const SnackBar(content: Text('Data sharing consents tapped')),
+                            const SnackBar(
+                                content: Text('Data sharing consents tapped')),
                           );
                         },
                       ),
@@ -236,7 +253,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         icon: Icons.history_rounded,
                         title: tr('Audit logs'),
                         subtitle: tr('Tamper-evident record of every action'),
-                        onTap: () => _navigateToScreen(const AuditLogsScreen(), '/audit_logs'),
+                        onTap: () => _navigateToScreen(
+                            const AuditLogsScreen(), '/audit_logs'),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
@@ -253,7 +271,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         subtitle: 'Version 1.3 · updated 12/06/2026',
                         onTap: () => _navigateToScreen(
                           const PrivacyPolicyScreen(
-                            assetPath: 'assets/docs/Finix terms and conditions.pdf',
+                            assetPath:
+                                'assets/docs/Finix terms and conditions.pdf',
                             title: 'Terms & conditions',
                             cacheName: 'finix-terms.pdf',
                           ),
@@ -308,7 +327,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         subtitle: tr('Guides, chat with support'),
                         // Opens the assistant rather than a snackbar; it is
                         // already the app's answer to "how do I…" questions.
-                        onTap: () => _navigateToScreen(const ChatScreen(), '/chat'),
+                        onTap: () =>
+                            _navigateToScreen(const ChatScreen(), '/chat'),
                       ),
                       _buildDivider(),
                       _buildMenuItem(
@@ -317,7 +337,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                         iconBgColor: const Color(0xFFDC2626).withOpacity(0.1),
                         title: tr('Report fraud'),
                         subtitle: 'Files a case and dials 1930',
-                        onTap: () => _navigateToScreen(const ReportFraudScreen(), '/report_fraud'),
+                        onTap: () => _navigateToScreen(
+                            const ReportFraudScreen(), '/report_fraud'),
                       ),
                     ]),
                     const SizedBox(height: 20),
@@ -404,8 +425,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 borderRadius: BorderRadius.circular(12),
                 onTap: () => Navigator.pop(sheetContext, language),
                 child: Padding(
-                  padding: const EdgeInsets.symmetric(
-                      horizontal: 4, vertical: 14),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 4, vertical: 14),
                   child: Row(
                     children: [
                       Expanded(
@@ -470,19 +491,75 @@ class _ProfileScreenState extends State<ProfileScreen> {
     Navigator.of(context).popUntil((route) => route.isFirst);
   }
 
+  /// Renders paise as rupees in Indian digit grouping (₹12,34,567).
+  static String _money(num paise) {
+    final n = (paise / 100).round().abs().toString();
+    if (n.length <= 3) return '₹$n';
+    final last3 = n.substring(n.length - 3);
+    var rest = n.substring(0, n.length - 3);
+    final groups = <String>[];
+    while (rest.length > 2) {
+      groups.insert(0, rest.substring(rest.length - 2));
+      rest = rest.substring(0, rest.length - 2);
+    }
+    if (rest.isNotEmpty) groups.insert(0, rest);
+    return '₹${groups.join(',')},$last3';
+  }
+
   /// Shows the caps that apply to this account.
   ///
-  /// Was a "Transaction limits tapped" snackbar. The figures come from the
-  /// same policy the backend enforces at payment time.
-  void _showTransactionLimits() {
-    const limits = [
-      (Icons.today_rounded, 'Daily limit', '₹1,00,000', 'Across all channels'),
-      (Icons.swap_horiz_rounded, 'Per transfer', '₹25,000',
-          'Anything above needs step-up authentication'),
-      (Icons.person_add_alt_1_rounded, 'New payee, first 24 hours', '₹5,000',
-          'A cooling-off cap that blunts a rushed transfer'),
-      (Icons.nightlight_round, 'Between 11 PM and 5 AM', '₹10,000',
-          'Late-night payments carry more risk'),
+  /// These four figures were written into this file, and only one of them —
+  /// the per-transfer step-up — was enforced anywhere. They now come from
+  /// /v1/transaction-limits, which is the same policy the payment path
+  /// applies, so the sheet cannot drift from what actually happens.
+  Future<void> _showTransactionLimits() async {
+    final data = await ApiService.instance.getTransactionLimits();
+    if (!mounted) return;
+
+    if (data.isEmpty) {
+      ScaffoldMessenger.of(context).showSnackBar(
+        SnackBar(content: Text(tr('Could not load your limits. Try again.'))),
+      );
+      return;
+    }
+
+    int paise(String key) => ((data[key] as num?) ?? 0).round();
+    final int newPayeeHours =
+        ((data['newPayeeWindowHours'] as num?) ?? 24).round();
+    final int nightFrom = ((data['nightStartHour'] as num?) ?? 23).round();
+    final int nightTo = ((data['nightEndHour'] as num?) ?? 5).round();
+
+    final limits = [
+      (
+        Icons.today_rounded,
+        'Daily limit',
+        _money(paise('dailyPaise')),
+        '${_money(paise('dailyRemainingPaise'))} left today'
+      ),
+      (
+        Icons.account_balance_wallet_rounded,
+        'Available to send',
+        _money(paise('availableToSpendPaise')),
+        'Your PSB savings balance'
+      ),
+      (
+        Icons.swap_horiz_rounded,
+        'Per transfer',
+        _money(paise('perTransferPaise')),
+        'Anything above needs step-up authentication'
+      ),
+      (
+        Icons.person_add_alt_1_rounded,
+        'New payee, first $newPayeeHours hours',
+        _money(paise('newPayeePaise')),
+        'A cooling-off cap that blunts a rushed transfer'
+      ),
+      (
+        Icons.nightlight_round,
+        'Between $nightFrom:00 and $nightTo:00',
+        _money(paise('nightPaise')),
+        'Late-night payments carry more risk'
+      ),
     ];
 
     showModalBottomSheet(
@@ -522,9 +599,13 @@ class _ProfileScreenState extends State<ProfileScreen> {
             ),
             const SizedBox(height: 4),
             Text(
-              tr('Caps applied by your bank. A payment over a cap is not '
-                  'refused outright — it asks you to confirm with a '
-                  'fingerprint and a one-time code.'),
+              // Corrected: this used to say no cap refuses a payment outright,
+              // which is only true of the per-transfer cap. The daily,
+              // new-payee and late-night caps do refuse.
+              tr('Caps applied by your bank. Above the per-transfer cap you '
+                  'confirm with a fingerprint and a one-time code; the daily, '
+                  'new-payee and late-night caps stop a payment until they '
+                  'no longer apply.'),
               style: GoogleFonts.inter(
                 fontSize: 12,
                 height: 1.5,
@@ -647,7 +728,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
   // Top Identity Card
   Widget _buildIdentityCard() {
     return GestureDetector(
-      onTap: () => _navigateToScreen(const PersonalDetailsScreen(), '/personal_details'),
+      onTap: () =>
+          _navigateToScreen(const PersonalDetailsScreen(), '/personal_details'),
       behavior: HitTestBehavior.opaque,
       child: Container(
         width: double.infinity,
@@ -716,7 +798,8 @@ class _ProfileScreenState extends State<ProfileScreen> {
                       const SizedBox(width: 7),
                       // KYC Verified badge
                       Container(
-                        padding: const EdgeInsets.symmetric(horizontal: 6, vertical: 2),
+                        padding: const EdgeInsets.symmetric(
+                            horizontal: 6, vertical: 2),
                         decoration: BoxDecoration(
                           color: const Color(0xFF16A34A).withOpacity(0.1),
                           borderRadius: BorderRadius.circular(4),
@@ -802,13 +885,15 @@ class _ProfileScreenState extends State<ProfileScreen> {
                 width: 36,
                 height: 36,
                 decoration: BoxDecoration(
-                  color: iconBgColor ?? const Color(0xFFEEF4FA), // color/surface/sky
+                  color: iconBgColor ??
+                      const Color(0xFFEEF4FA), // color/surface/sky
                   borderRadius: BorderRadius.circular(10),
                 ),
                 child: Center(
                   child: Icon(
                     icon,
-                    color: iconColor ?? const Color(0xFF0B2545), // color/brand/navy
+                    color: iconColor ??
+                        const Color(0xFF0B2545), // color/brand/navy
                     size: 18,
                   ),
                 ),

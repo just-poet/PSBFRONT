@@ -7,8 +7,10 @@ import 'package:google_fonts/google_fonts.dart';
 import '../main.dart';
 import '../services/api_service.dart';
 import '../services/hardware_service.dart';
+import '../services/onboarding_state.dart';
 import 'ekyc.dart';
 import 'home_dashboard.dart';
+import 'onboarding_kin.dart';
 import 'smooth_route.dart';
 
 /// Sign in with the 10-digit Central KYC (cKYC) number and the 6-digit PIN.
@@ -95,26 +97,60 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
         return;
       }
 
-      Navigator.pushAndRemoveUntil(
-        context,
-        SmoothPageRoute(
-          // The bottom navigation bar hides itself while the active tab is
-          // 'ekyc', which the navigator observer sets for the initial '/'
-          // route so the sign-in screen has no chrome. Without a route name
-          // here the observer never runs, the tab stays 'ekyc', and the bar
-          // stays hidden for the rest of the session.
-          settings: const RouteSettings(name: '/home'),
-          builder: (_) => const MobileDeviceFrame(child: HomeDashboardScreen()),
-        ),
-        (route) => false,
-      );
+      // First-time customers confirm their KIN before the app opens. Scoped to
+      // the customer who just signed in, so a shared handset does not let one
+      // person inherit another's completed onboarding.
+      OnboardingState.currentCustomerKey =
+          (result['userId'] ?? result['ckyc'] ?? _phoneController.text.trim())
+              .toString();
+      if (await OnboardingState.needsKinVerification()) {
+        if (!mounted) return;
+        Navigator.pushAndRemoveUntil(
+          context,
+          SmoothPageRoute(
+            settings: const RouteSettings(name: '/onboarding-kin'),
+            builder: (_) => MobileDeviceFrame(
+              child: OnboardingKinScreen(onVerified: () async {
+                _openDashboard();
+              }),
+            ),
+          ),
+          (route) => false,
+        );
+        return;
+      }
+
+      if (!mounted) return;
+      _openDashboard();
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
-      if (mounted) setState(() => _error = 'Something went wrong. Please try again.');
+      if (mounted)
+        setState(() => _error = 'Something went wrong. Please try again.');
     } finally {
       if (mounted) setState(() => _busy = false);
     }
+  }
+
+  /// Opens the app, replacing the whole stack.
+  ///
+  /// Shared by both routes in: a returning customer straight after biometrics,
+  /// and a first-time customer once their KIN is confirmed.
+  void _openDashboard() {
+    if (!mounted) return;
+    Navigator.pushAndRemoveUntil(
+      context,
+      SmoothPageRoute(
+        // The bottom navigation bar hides itself while the active tab is
+        // 'ekyc', which the navigator observer sets for the initial '/'
+        // route so the sign-in screen has no chrome. Without a route name
+        // here the observer never runs, the tab stays 'ekyc', and the bar
+        // stays hidden for the rest of the session.
+        settings: const RouteSettings(name: '/home'),
+        builder: (_) => const MobileDeviceFrame(child: HomeDashboardScreen()),
+      ),
+      (route) => false,
+    );
   }
 
   /// Lets a tester point the app at a different backend (a tunnel URL, a LAN
@@ -126,7 +162,8 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
       context: context,
       builder: (dialogContext) => AlertDialog(
         title: Text(tr('API address'),
-            style: GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700)),
+            style:
+                GoogleFonts.inter(fontSize: 16, fontWeight: FontWeight.w700)),
         content: Column(
           mainAxisSize: MainAxisSize.min,
           crossAxisAlignment: CrossAxisAlignment.start,
@@ -146,7 +183,8 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
             Text(
               'Use the https address of the FINIX backend. Plain http works '
               'only for hosts allowed in the network security config.',
-              style: GoogleFonts.inter(fontSize: 11.5, color: const Color(0xFF64748B)),
+              style: GoogleFonts.inter(
+                  fontSize: 11.5, color: const Color(0xFF64748B)),
             ),
           ],
         ),
@@ -156,9 +194,11 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
             child: Text(tr('Cancel'), style: GoogleFonts.inter(fontSize: 13)),
           ),
           TextButton(
-            onPressed: () => Navigator.pop(dialogContext, controller.text.trim()),
+            onPressed: () =>
+                Navigator.pop(dialogContext, controller.text.trim()),
             child: Text(tr('Save'),
-                style: GoogleFonts.inter(fontSize: 13, fontWeight: FontWeight.w600)),
+                style: GoogleFonts.inter(
+                    fontSize: 13, fontWeight: FontWeight.w600)),
           ),
         ],
       ),
@@ -220,16 +260,22 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
                     builder: (context, connected, _) => TextButton.icon(
                       onPressed: _busy ? null : _editServerAddress,
                       icon: Icon(
-                        connected ? Icons.cloud_done_rounded : Icons.cloud_off_rounded,
+                        connected
+                            ? Icons.cloud_done_rounded
+                            : Icons.cloud_off_rounded,
                         size: 16,
-                        color: connected ? const Color(0xFF15803D) : const Color(0xFFB45309),
+                        color: connected
+                            ? const Color(0xFF15803D)
+                            : const Color(0xFFB45309),
                       ),
                       label: Text(
                         connected ? 'Connected' : 'Set server',
                         style: GoogleFonts.inter(
                           fontSize: 12,
                           fontWeight: FontWeight.w600,
-                          color: connected ? const Color(0xFF15803D) : const Color(0xFFB45309),
+                          color: connected
+                              ? const Color(0xFF15803D)
+                              : const Color(0xFFB45309),
                         ),
                       ),
                     ),
@@ -279,35 +325,35 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
                       color: const Color(0xFFE2E8F0),
                     ),
                     Expanded(
-                child: TextField(
-                  controller: _phoneController,
-                  keyboardType: TextInputType.phone,
-                  inputFormatters: [
-                    FilteringTextInputFormatter.digitsOnly,
-                    LengthLimitingTextInputFormatter(_phoneLength),
-                  ],
-                  autofocus: true,
-                  textInputAction: TextInputAction.next,
-                  onChanged: (_) => setState(() => _error = null),
-                  onSubmitted: (_) => _pinFocus.requestFocus(),
-                  style: GoogleFonts.inter(
-                    fontSize: 17,
-                    fontWeight: FontWeight.w600,
-                    letterSpacing: 2,
-                    color: const Color(0xFF0B2545),
-                  ),
-                  decoration: InputDecoration(
-                    border: InputBorder.none,
-                    isDense: true,
-                    hintText: '99836 92606',
-                    hintStyle: GoogleFonts.inter(
-                      color: const Color(0xFFCBD5E1),
-                      letterSpacing: 2,
-                      fontWeight: FontWeight.w500,
-                    ),
-                    counterText: '',
-                  ),
-                ),
+                      child: TextField(
+                        controller: _phoneController,
+                        keyboardType: TextInputType.phone,
+                        inputFormatters: [
+                          FilteringTextInputFormatter.digitsOnly,
+                          LengthLimitingTextInputFormatter(_phoneLength),
+                        ],
+                        autofocus: true,
+                        textInputAction: TextInputAction.next,
+                        onChanged: (_) => setState(() => _error = null),
+                        onSubmitted: (_) => _pinFocus.requestFocus(),
+                        style: GoogleFonts.inter(
+                          fontSize: 17,
+                          fontWeight: FontWeight.w600,
+                          letterSpacing: 2,
+                          color: const Color(0xFF0B2545),
+                        ),
+                        decoration: InputDecoration(
+                          border: InputBorder.none,
+                          isDense: true,
+                          hintText: '99836 92606',
+                          hintStyle: GoogleFonts.inter(
+                            color: const Color(0xFFCBD5E1),
+                            letterSpacing: 2,
+                            fontWeight: FontWeight.w500,
+                          ),
+                          counterText: '',
+                        ),
+                      ),
                     ),
                   ],
                 ),
@@ -367,7 +413,8 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
               if (_error != null) ...[
                 const SizedBox(height: 14),
                 Container(
-                  padding: const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
+                  padding:
+                      const EdgeInsets.symmetric(horizontal: 14, vertical: 12),
                   decoration: BoxDecoration(
                     color: const Color(0xFFFEF2F2),
                     borderRadius: BorderRadius.circular(10),
@@ -412,7 +459,8 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
                         height: 22,
                         child: CircularProgressIndicator(
                           strokeWidth: 2.4,
-                          valueColor: AlwaysStoppedAnimation<Color>(Colors.white),
+                          valueColor:
+                              AlwaysStoppedAnimation<Color>(Colors.white),
                         ),
                       )
                     : Text(
