@@ -110,9 +110,13 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
           SmoothPageRoute(
             settings: const RouteSettings(name: '/onboarding-kin'),
             builder: (_) => MobileDeviceFrame(
-              child: OnboardingKinScreen(onVerified: () async {
-                _openDashboard();
-              }),
+              child: OnboardingKinScreen(
+                demoHint: _demoKinHint(_phoneController.text.trim()),
+                // Navigates from the KIN screen's own context: this route
+                // removes the sign-in screen, so anything closing over this
+                // State runs after it has been disposed.
+                onVerified: (kinContext) async => _openDashboard(kinContext),
+              ),
             ),
           ),
           (route) => false,
@@ -121,7 +125,7 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
       }
 
       if (!mounted) return;
-      _openDashboard();
+      _openDashboard(context);
     } on ApiException catch (e) {
       if (mounted) setState(() => _error = e.message);
     } catch (_) {
@@ -132,12 +136,41 @@ class _LoginCkycScreenState extends State<LoginCkycScreen> {
     }
   }
 
+  /// The KIN held on each demo account, keyed by mobile number.
+  ///
+  /// Demo affordance only, alongside the seeded PIN hint on this screen: the
+  /// KIN is checked against the customer's real CKYC record, and there is no
+  /// way to discover it from inside the app. Without this the first-time flow
+  /// cannot be demonstrated at all.
+  static const Map<String, String> _demoKins = {
+    '9983692606': '2000000001', // Jiyad
+    '6303891930': '2000000002', // Venkat
+    '8175065652': '2000000003', // RD Shubham
+    '9876543210': '2000000004', // Arjun Reddy
+    '9876543211': '2000000005', // Priya Sharma
+    '9876543212': '2000000006', // Karthik Iyer
+    '9876543213': '2000000007', // Sneha Patel
+    '9876543214': '2000000008', // Ravi Kumar
+    '9876543215': '2000000009', // Ananya Gupta
+    '9876543216': '2000000010', // Mohammed Ali
+  };
+
+  static String? _demoKinHint(String phone) {
+    // Tolerates a +91 or 0 prefix, the same shapes the backend normalises.
+    var digits = phone.replaceAll(RegExp(r'\D'), '');
+    if (digits.length > 10) digits = digits.substring(digits.length - 10);
+    final kin = _demoKins[digits];
+    if (kin == null) return null;
+    return 'Demo account: your KIN is $kin';
+  }
+
   /// Opens the app, replacing the whole stack.
   ///
   /// Shared by both routes in: a returning customer straight after biometrics,
-  /// and a first-time customer once their KIN is confirmed.
-  void _openDashboard() {
-    if (!mounted) return;
+  /// and a first-time customer once their KIN is confirmed. Takes the context
+  /// to navigate from, because the KIN screen calls this after the sign-in
+  /// screen has been removed from the stack and disposed.
+  void _openDashboard(BuildContext context) {
     Navigator.pushAndRemoveUntil(
       context,
       SmoothPageRoute(

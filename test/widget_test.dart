@@ -3,6 +3,7 @@ import 'package:flutter_test/flutter_test.dart';
 
 import 'package:finix_dashboard/main.dart';
 import 'package:finix_dashboard/screens/bottom_nav_bar.dart';
+import 'package:finix_dashboard/screens/onboarding_kin.dart';
 import 'package:finix_dashboard/screens/payment_success.dart';
 import 'package:finix_dashboard/screens/splash_screen.dart';
 
@@ -127,6 +128,59 @@ void main() {
     await tester.pumpAndSettle();
     expect(find.text('Home'), findsOneWidget,
         reason: 'and it must come back once the keyboard closes');
+  });
+
+  testWidgets('the KIN screen can hand off after the pusher is disposed',
+      (tester) async {
+    // The screen that pushes onboarding removes itself from the stack, so a
+    // callback closing over its State runs with mounted == false. The first
+    // version navigated through that State and silently did nothing, leaving
+    // the customer stuck on the KIN screen with a correct KIN.
+    var handedOff = false;
+
+    await tester.pumpWidget(MaterialApp(
+      home: Builder(
+        builder: (context) => ElevatedButton(
+          onPressed: () => Navigator.pushAndRemoveUntil(
+            context,
+            MaterialPageRoute(
+              builder: (_) => OnboardingKinScreen(
+                onVerified: (kinContext) async {
+                  // Proves the context handed to the callback is still usable
+                  // for navigation once onboarding completes.
+                  handedOff = Navigator.maybeOf(kinContext) != null;
+                },
+              ),
+            ),
+            (route) => false,
+          ),
+          child: const Text('go'),
+        ),
+      ),
+    ));
+
+    await tester.tap(find.text('go'));
+    await tester.pumpAndSettle();
+    expect(find.text('Confirm your identity'), findsOneWidget);
+
+    final state = tester.state(find.byType(OnboardingKinScreen));
+    // ignore: avoid_dynamic_calls
+    await (state as dynamic).widget.onVerified(state.context);
+    await tester.pumpAndSettle();
+
+    expect(handedOff, isTrue,
+        reason: 'the callback must receive a context that can still navigate');
+  });
+
+  testWidgets('the KIN screen always offers a way back to sign-in',
+      (tester) async {
+    // It owns the whole stack: no back button, no tab bar. Without this a
+    // customer who cannot pass the check has an unusable app.
+    await tester.pumpWidget(MaterialApp(
+      home: OnboardingKinScreen(onVerified: (_) async {}),
+    ));
+    await tester.pump();
+    expect(find.text('Use a different number'), findsOneWidget);
   });
 
   testWidgets('bottom nav is hidden on the payment receipt', (tester) async {
